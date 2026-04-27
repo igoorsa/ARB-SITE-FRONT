@@ -502,10 +502,10 @@ export function PairMonitorPage() {
                 />
                 <BookSideCard
                   title={isSpotSpot ? `Venda em ${latestItem.futures_exchange}` : `Venda em ${latestItem.futures_exchange}`}
-                  primaryLabel="Melhor bid"
-                  primaryValue={formatPrice(latestItem.best_future_bid)}
-                  secondaryLabel="Melhor ask"
-                  secondaryValue={formatPrice(latestItem.best_future_ask)}
+                  primaryLabel="Melhor ask"
+                  primaryValue={formatPrice(latestItem.best_future_ask)}
+                  secondaryLabel="Melhor bid"
+                  secondaryValue={formatPrice(latestItem.best_future_bid)}
                   volumeLabel="Melhor Vol."
                   volumeValue={
                     isSpotSpot
@@ -550,8 +550,12 @@ export function PairMonitorPage() {
 
             {!networkError && networkData ? (
               <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
-                {networkData.exchanges.map((exchange) => (
-                  <ExchangeNetworkCard key={exchange.exchange_id} exchange={exchange} matches={networkMatches[exchange.exchange_id] ?? {}} />
+                {networkData.exchanges.map((exchange, index) => (
+                  <ExchangeNetworkCard
+                    key={`${exchange.exchange_id}-${index}`}
+                    exchange={exchange}
+                    matches={networkMatches[exchange.exchange_id] ?? {}}
+                  />
                 ))}
               </div>
             ) : null}

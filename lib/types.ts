@@ -57,7 +57,7 @@ export interface CandleData {
 
 export interface HealthStatus {
   status: string
-  postgres: string
+  influx: string
   redis: string
 }
 
