@@ -176,6 +176,9 @@ export default function HomePage() {
       coin: debouncedFilters.coin || undefined,
       min_entry_spread_pct: minimumPositiveSpread,
       interval_seconds: debouncedFilters.refresh_interval_seconds || 5,
+      lite: true,
+      delta: true,
+      msgpack: true,
     })
   }, [debouncedFilters, minimumPositiveSpread, selectedView])
 
@@ -200,6 +203,7 @@ export default function HomePage() {
           futures_exchange: debouncedFilters.futures_exchange || undefined,
           coin: debouncedFilters.coin || undefined,
           min_entry_spread_pct: minimumPositiveSpread,
+          lite: true,
         })
 
         if (!isActive) return
@@ -388,7 +392,7 @@ export default function HomePage() {
 
           {selectedSection === "monitor" ? (
             <>
-              <Filters filters={filters} onFiltersChange={setFilters} />
+              <Filters filters={filters} onFiltersChange={setFilters} pairType={selectedView} />
 
               <StatsCards data={activeData} />
 

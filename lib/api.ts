@@ -50,6 +50,10 @@ interface LatestParams {
   min_exit_spread_pct?: number
   min_entry_volume_usdt?: number
   limit?: number
+  compact?: boolean
+  delta?: boolean
+  lite?: boolean
+  msgpack?: boolean
 }
 
 interface CandleParams {
@@ -104,8 +108,19 @@ export async function fetchLatest(params: LatestParams = {}): Promise<SpreadItem
   if (!response.ok) {
     throw new Error("Falha ao buscar dados mais recentes")
   }
-  const data = (await response.json()) as SpreadItem[] | SnapshotResponse
-  return Array.isArray(data) ? data : data.items
+  const data = (await response.json()) as
+    | SpreadItem[]
+    | SnapshotResponse
+    | { items?: SpreadItem[] | unknown[][]; columns?: string[] }
+  if (Array.isArray(data)) {
+    return data
+  }
+  if (Array.isArray(data.items) && Array.isArray(data.columns) && Array.isArray(data.items[0])) {
+    return (data.items as unknown[][])
+      .map((row) => liteRowToSpreadItem(row, data.columns!))
+      .filter((item): item is SpreadItem => Boolean(item))
+  }
+  return (data.items as SpreadItem[]) ?? []
 }
 
 export async function fetchCandles(params: CandleParams): Promise<CandleData[]> {
@@ -132,4 +147,47 @@ export async function fetchNetworks(params: NetworkParams): Promise<AssetNetwork
 export function createWebSocketUrl(params: LatestParams & { interval_seconds?: number }): string {
   const queryString = buildQueryString(params)
   return `${WS_BASE_URL}/ws/spreads${queryString ? `?${queryString}` : ""}`
+}
+
+function liteRowToSpreadItem(row: unknown[], columns: string[]): SpreadItem | null {
+  if (!Array.isArray(row)) {
+    return null
+  }
+
+  const record: Record<string, unknown> = {}
+  columns.forEach((column, index) => {
+    record[column] = row[index]
+  })
+
+  if (typeof record.pair_key !== "string" || typeof record.symbol !== "string") {
+    return null
+  }
+
+  return {
+    pair_key: record.pair_key,
+    pair_type: typeof record.pair_type === "string" ? record.pair_type : undefined,
+    symbol: record.symbol,
+    spot_exchange: typeof record.spot_exchange === "string" ? record.spot_exchange : "",
+    futures_exchange: typeof record.futures_exchange === "string" ? record.futures_exchange : "",
+    entry_spread_pct: Number(record.entry_spread_pct ?? 0),
+    exit_spread_pct: Number(record.exit_spread_pct ?? 0),
+    entry_volume_usdt: Number(record.entry_volume_usdt ?? 0),
+    exit_volume_usdt: Number(record.exit_volume_usdt ?? 0),
+    spot_volume_24h_usdt: toOptionalNumber(record.spot_volume_24h_usdt),
+    future_volume_24h_usdt: toOptionalNumber(record.future_volume_24h_usdt),
+    best_spot_bid: toOptionalNumber(record.best_spot_bid),
+    best_spot_ask: toOptionalNumber(record.best_spot_ask),
+    best_future_bid: toOptionalNumber(record.best_future_bid),
+    best_future_ask: toOptionalNumber(record.best_future_ask),
+    funding_rate: toOptionalNumber(record.funding_rate),
+    updated_at: typeof record.updated_at === "string" ? record.updated_at : new Date().toISOString(),
+  }
+}
+
+function toOptionalNumber(value: unknown): number | undefined {
+  if (value == null || value === "") {
+    return undefined
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
 }

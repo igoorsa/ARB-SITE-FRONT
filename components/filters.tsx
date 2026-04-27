@@ -20,12 +20,13 @@ import { cn } from "@/lib/utils"
 interface FiltersProps {
   filters: FilterState
   onFiltersChange: (filters: FilterState) => void
+  pairType?: "spot_future" | "spot_spot"
 }
 
-const SPOT_EXCHANGES = ["gate", "mexc", "bitget", "kucoin", "bybit", "okx", "htx"]
+const SPOT_EXCHANGES = ["binance", "bingx", "bybit", "gate", "kucoin", "mexc", "okx", "htx"]
 const FUTURES_EXCHANGES = ["binance", "bitget", "bybit", "okx", "gate", "mexc"]
 
-export function Filters({ filters, onFiltersChange }: FiltersProps) {
+export function Filters({ filters, onFiltersChange, pairType = "spot_future" }: FiltersProps) {
   const [draft, setDraft] = useState<FilterState>(filters)
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -57,6 +58,10 @@ export function Filters({ filters, onFiltersChange }: FiltersProps) {
     })
   }
 
+  const clearExchanges = (key: "spot_exchange" | "futures_exchange") => {
+    setDraft((previous) => ({ ...previous, [key]: [] }))
+  }
+
   const applyFilters = () => {
     onFiltersChange(draft)
     setMobileOpen(false)
@@ -73,6 +78,11 @@ export function Filters({ filters, onFiltersChange }: FiltersProps) {
     () => JSON.stringify(draft) !== JSON.stringify(filters),
     [draft, filters]
   )
+  const isSpotSpot = pairType === "spot_spot"
+  const desktopSpotLabel = isSpotSpot ? "Spot compra" : "Spot"
+  const desktopFuturesLabel = isSpotSpot ? "Spot venda" : "Futuros"
+  const mobileSpotLabel = isSpotSpot ? "Exchange Spot compra" : "Exchange Spot"
+  const mobileFuturesLabel = isSpotSpot ? "Exchange Spot venda" : "Exchange Futuros"
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
@@ -91,19 +101,21 @@ export function Filters({ filters, onFiltersChange }: FiltersProps) {
 
         <div className="hidden items-center gap-4 lg:flex">
           <ExchangeMultiSelect
-            label="Spot"
+            label={desktopSpotLabel}
             placeholder="Todas"
             options={SPOT_EXCHANGES}
             selected={draft.spot_exchange}
             onToggle={(value) => toggleExchange("spot_exchange", value)}
+            onSelectAll={() => clearExchanges("spot_exchange")}
           />
 
           <ExchangeMultiSelect
-            label="Futuros"
+            label={desktopFuturesLabel}
             placeholder="Todas"
             options={FUTURES_EXCHANGES}
             selected={draft.futures_exchange}
             onToggle={(value) => toggleExchange("futures_exchange", value)}
+            onSelectAll={() => clearExchanges("futures_exchange")}
           />
 
           <div className="flex items-center gap-2">
@@ -178,17 +190,19 @@ export function Filters({ filters, onFiltersChange }: FiltersProps) {
               </SheetHeader>
               <div className="mt-6 flex flex-col gap-6">
                 <ExchangeChecklist
-                  label="Exchange Spot"
+                  label={mobileSpotLabel}
                   options={SPOT_EXCHANGES}
                   selected={draft.spot_exchange}
                   onToggle={(value) => toggleExchange("spot_exchange", value)}
+                  onSelectAll={() => clearExchanges("spot_exchange")}
                 />
 
                 <ExchangeChecklist
-                  label="Exchange Futuros"
+                  label={mobileFuturesLabel}
                   options={FUTURES_EXCHANGES}
                   selected={draft.futures_exchange}
                   onToggle={(value) => toggleExchange("futures_exchange", value)}
+                  onSelectAll={() => clearExchanges("futures_exchange")}
                 />
 
                 <div>
@@ -240,12 +254,14 @@ function ExchangeMultiSelect({
   options,
   selected,
   onToggle,
+  onSelectAll,
 }: {
   label: string
   placeholder: string
   options: string[]
   selected: string[]
   onToggle: (value: string) => void
+  onSelectAll: () => void
 }) {
   return (
     <div className="flex items-center gap-2">
@@ -263,6 +279,22 @@ function ExchangeMultiSelect({
           <div className="space-y-2">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {label}
+            </div>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={onSelectAll}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault()
+                  onSelectAll()
+                }
+              }}
+              className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-secondary"
+            >
+              <Checkbox checked={selected.length === 0} />
+              <span className="flex-1 text-left font-medium">Todas</span>
+              {selected.length === 0 ? <Check className="h-4 w-4 text-primary" /> : null}
             </div>
             {options.map((exchange) => {
               const checked = selected.includes(exchange)
@@ -298,16 +330,36 @@ function ExchangeChecklist({
   options,
   selected,
   onToggle,
+  onSelectAll,
 }: {
   label: string
   options: string[]
   selected: string[]
   onToggle: (value: string) => void
+  onSelectAll: () => void
 }) {
   return (
     <div>
       <Label className="mb-2 block text-sm text-muted-foreground">{label}</Label>
       <div className="space-y-2 rounded-lg border border-border bg-secondary/30 p-3">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={onSelectAll}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault()
+              onSelectAll()
+            }
+          }}
+          className={cn(
+            "flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm",
+            selected.length === 0 ? "bg-primary/10 text-foreground" : "hover:bg-secondary"
+          )}
+        >
+          <Checkbox checked={selected.length === 0} />
+          <span className="font-medium">Todas</span>
+        </div>
         {options.map((exchange) => {
           const checked = selected.includes(exchange)
           return (
