@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useExchangePairBooks } from "@/hooks/use-exchange-pair-books"
-import { fetchCandles, fetchLatest, fetchNetworks } from "@/lib/api"
+import { fetchCandles, fetchNetworks } from "@/lib/api"
 import type { AssetNetworksResponse, CandleData, SpreadItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -103,7 +103,6 @@ export function PairMonitorPage() {
   const [latestItem, setLatestItem] = useState<SpreadItem | null>(null)
   const [candles, setCandles] = useState<CandleData[]>([])
   const [loadingCandles, setLoadingCandles] = useState(false)
-  const [loadingSnapshot, setLoadingSnapshot] = useState(false)
   const [networkData, setNetworkData] = useState<AssetNetworksResponse | null>(null)
   const [loadingNetworks, setLoadingNetworks] = useState(false)
   const [networkError, setNetworkError] = useState<string | null>(null)
@@ -138,33 +137,20 @@ export function PairMonitorPage() {
   })
 
   useEffect(() => {
-    if (!pairKey) return
-
-    let isActive = true
-
-    const loadSnapshot = async () => {
-      setLoadingSnapshot(true)
-
-      try {
-        const [first] = await fetchLatest({ pair_key: pairKey, limit: 1 })
-        if (!isActive) return
-        setLatestItem(first ?? null)
-      } catch {
-        if (!isActive) return
-        setLatestItem(null)
-      } finally {
-        if (isActive) {
-          setLoadingSnapshot(false)
-        }
-      }
+    if (!pairKey || !fallbackCoin || !fallbackSpotExchange || !fallbackFuturesExchange) {
+      setLatestItem(null)
+      return
     }
-
-    loadSnapshot()
-
-    return () => {
-      isActive = false
-    }
-  }, [pairKey])
+    setLatestItem(
+      buildFallbackSpreadItem(
+        pairKey,
+        fallbackPairType,
+        fallbackCoin,
+        fallbackSpotExchange,
+        fallbackFuturesExchange
+      )
+    )
+  }, [pairKey, fallbackPairType, fallbackCoin, fallbackSpotExchange, fallbackFuturesExchange])
 
   useEffect(() => {
     if (!latestItem || !legABook || !legBBook) {
@@ -387,7 +373,6 @@ export function PairMonitorPage() {
                 )}
               />
               <span>{isConnected ? "Tempo real conectado" : "Reconectando em tempo real"}</span>
-              {loadingSnapshot ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
             </div>
           </section>
 
@@ -474,7 +459,7 @@ export function PairMonitorPage() {
             </>
           ) : (
             <section className="rounded-2xl border border-border bg-card p-5 text-sm text-muted-foreground">
-              {loadingSnapshot ? "Carregando snapshot..." : "Snapshot nao disponivel para este par."}
+              Snapshot nao disponivel para este par.
             </section>
           )}
 
@@ -769,6 +754,27 @@ function patchSpreadItemWithRealtimeBooks(
       legBBook.bestAskAmount * legBBook.bestAskPrice
     ),
     updated_at: new Date(Math.max(legABook.timestamp, legBBook.timestamp)).toISOString(),
+  }
+}
+
+function buildFallbackSpreadItem(
+  pairKey: string,
+  pairType: "spot_future" | "spot_spot",
+  coin: string,
+  spotExchange: string,
+  futuresExchange: string
+): SpreadItem {
+  return {
+    pair_key: pairKey,
+    pair_type: pairType,
+    symbol: coin,
+    spot_exchange: spotExchange,
+    futures_exchange: futuresExchange,
+    entry_spread_pct: 0,
+    exit_spread_pct: 0,
+    entry_volume_usdt: 0,
+    exit_volume_usdt: 0,
+    updated_at: new Date(0).toISOString(),
   }
 }
 

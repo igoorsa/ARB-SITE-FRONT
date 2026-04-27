@@ -210,6 +210,9 @@ function createSocketForLeg(leg: ExchangeLegStreamSpec): WebSocket {
   if (exchangeId === "mexc" && leg.marketType === "spot") {
     return new WebSocket("wss://wbs-api.mexc.com/ws")
   }
+  if (exchangeId === "mexc" && leg.marketType === "future") {
+    return new WebSocket("wss://contract.mexc.com/edge")
+  }
   if (exchangeId === "bitget" && (leg.marketType === "spot" || leg.marketType === "future")) {
     return new WebSocket("wss://ws.bitget.com/v2/ws/public")
   }
@@ -245,6 +248,19 @@ function sendSubscribe(ws: WebSocket, leg: ExchangeLegStreamSpec) {
       JSON.stringify({
         method: "SUBSCRIPTION",
         params: [`spot@public.limit.depth.v3.api.pb@${toMexcSymbol(leg.asset)}@10`],
+        id: Date.now(),
+      })
+    )
+    return
+  }
+  if (exchangeId === "mexc" && leg.marketType === "future") {
+    ws.send(
+      JSON.stringify({
+        method: "sub.depth.full",
+        param: {
+          symbol: toMexcFuturesSymbol(leg.asset),
+          limit: 10,
+        },
         id: Date.now(),
       })
     )
@@ -301,6 +317,19 @@ function sendUnsubscribe(ws: WebSocket, leg: ExchangeLegStreamSpec) {
     )
     return
   }
+  if (exchangeId === "mexc" && leg.marketType === "future") {
+    ws.send(
+      JSON.stringify({
+        method: "unsub.depth.full",
+        param: {
+          symbol: toMexcFuturesSymbol(leg.asset),
+          limit: 10,
+        },
+        id: Date.now(),
+      })
+    )
+    return
+  }
   if (exchangeId === "bitget") {
     ws.send(
       JSON.stringify({
@@ -318,14 +347,25 @@ function sendUnsubscribe(ws: WebSocket, leg: ExchangeLegStreamSpec) {
 }
 
 function startHeartbeat(ws: WebSocket, leg: ExchangeLegStreamSpec): ReturnType<typeof setInterval> | null {
-  if (leg.exchangeId.toLowerCase() !== "bitget") {
-    return null
+  const exchangeId = leg.exchangeId.toLowerCase()
+
+  if (exchangeId === "bitget") {
+    return setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send("ping")
+      }
+    }, 25_000)
   }
-  return setInterval(() => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send("ping")
-    }
-  }, 25_000)
+
+  if (exchangeId === "mexc" && leg.marketType === "future") {
+    return setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ method: "ping" }))
+      }
+    }, 20_000)
+  }
+
+  return null
 }
 
 async function parseExchangeDepthMessage(
@@ -346,6 +386,13 @@ async function parseExchangeDepthMessage(
     if (payload?.channel === "rs.error" || payload?.code === 1) return null
     if (payload?.method === "PING" || payload?.ping || payload?.op === "ping") return null
     return parseMexcDepthPayload(payload)
+  }
+  if (exchangeId === "mexc" && leg.marketType === "future") {
+    if (payload?.success === false || payload?.error) return null
+    if (payload?.channel || payload?.symbol || payload?.data) {
+      return parseMexcFuturesDepthPayload(payload)
+    }
+    return null
   }
   if (exchangeId === "bitget") {
     if (payload === "pong" || payload?.event === "subscribe" || payload?.event === "unsubscribe") return null
@@ -420,6 +467,28 @@ function buildDepthSnapshot(
 }
 
 function buildGateFuturesSnapshot(source: unknown, timestamp: unknown): ExchangeDepthSnapshot | null {
+  if (!source || typeof source !== "object") return null
+
+  const record = source as Record<string, unknown>
+  const directBids = normalizeLevels(record.bids, "p", "s")
+    .sort((left, right) => right.price - left.price)
+    .slice(0, 10)
+  const directAsks = normalizeLevels(record.asks, "p", "s")
+    .sort((left, right) => left.price - right.price)
+    .slice(0, 10)
+
+  if (directBids.length > 0 && directAsks.length > 0) {
+    return {
+      bids: directBids,
+      asks: directAsks,
+      timestamp: normalizeTimestamp(record.t ?? timestamp),
+      bestBidPrice: directBids[0].price,
+      bestBidAmount: directBids[0].amount,
+      bestAskPrice: directAsks[0].price,
+      bestAskAmount: directAsks[0].amount,
+    }
+  }
+
   if (!Array.isArray(source)) return null
 
   const bids: ExchangeOrderLevel[] = []
@@ -427,9 +496,9 @@ function buildGateFuturesSnapshot(source: unknown, timestamp: unknown): Exchange
 
   for (const entry of source) {
     if (!entry || typeof entry !== "object") continue
-    const record = entry as Record<string, unknown>
-    const price = toNumber(record.p)
-    const size = toNumber(record.s)
+    const level = entry as Record<string, unknown>
+    const price = toNumber(level.p)
+    const size = toNumber(level.s)
     if (price == null || size == null || size === 0) continue
     const normalized = { price, amount: Math.abs(size) }
     if (size > 0) {
@@ -527,6 +596,10 @@ function toBinanceSymbol(asset: string): string {
 
 function toMexcSymbol(asset: string): string {
   return asset.replace("/", "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase()
+}
+
+function toMexcFuturesSymbol(asset: string): string {
+  return asset.replace("/", "_").replace(/[^A-Z0-9_]/gi, "").toUpperCase()
 }
 
 function toGateSymbol(asset: string): string {
@@ -679,4 +752,28 @@ function parseMexcSpotProtobuf(payload: Uint8Array): ExchangeDepthSnapshot | nul
   } catch {
     return null
   }
+}
+
+function parseMexcFuturesDepthPayload(payload: any): ExchangeDepthSnapshot | null {
+  const source =
+    payload?.data ??
+    payload?.depth ??
+    payload?.book ??
+    payload
+
+  const bids =
+    source?.bids ??
+    source?.b ??
+    source?.buys
+
+  const asks =
+    source?.asks ??
+    source?.a ??
+    source?.sells
+
+  return buildDepthSnapshot(
+    bids,
+    asks,
+    source?.timestamp ?? source?.ts ?? payload?.ts ?? payload?.sendTime ?? Date.now()
+  )
 }
