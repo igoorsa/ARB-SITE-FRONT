@@ -1,5 +1,6 @@
 "use client"
 
+import { gunzipSync, strFromU8, unzlibSync } from "fflate"
 import { useEffect, useMemo, useState } from "react"
 import { PushDataV3ApiWrapper } from "@/lib/protobuf/PushDataV3ApiWrapper"
 
@@ -42,6 +43,12 @@ interface UseExchangePairBooksState {
 
 type BookListener = (snapshot: ExchangeDepthSnapshot) => void
 type StatusListener = (status: "connected" | "disconnected" | "error", error?: string) => void
+type OrderBookSide = Map<string, number>
+
+interface LocalOrderBookState {
+  bids: OrderBookSide
+  asks: OrderBookSide
+}
 
 export function useExchangePairBooks({
   legA,
@@ -99,11 +106,14 @@ export function useExchangePairBooks({
 
   const activeLegCount = Number(Boolean(legA)) + Number(Boolean(legB))
   const connectedCount = Number(legAConnected) + Number(legBConnected)
+  const hasLoadedActiveBooks =
+    (!legA || Boolean(legABook)) &&
+    (!legB || Boolean(legBBook))
 
   return {
     legABook,
     legBBook,
-    isConnected: activeLegCount > 0 && connectedCount === activeLegCount,
+    isConnected: activeLegCount > 0 && connectedCount === activeLegCount && hasLoadedActiveBooks,
     lastUpdate,
     error,
   }
@@ -123,6 +133,7 @@ function openExchangeDepthStream(
   let closedManually = false
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  let localOrderBook: LocalOrderBookState | null = null
 
   const connect = () => {
     if (closedManually) return
@@ -142,7 +153,16 @@ function openExchangeDepthStream(
     }
 
     ws.onmessage = async (event) => {
-      const snapshot = await parseExchangeDepthMessage(leg, event.data)
+      const payload = await decodeSocketPayload(event.data)
+      if (handleExchangeControlMessage(leg, ws!, payload)) {
+        return
+      }
+      const snapshot = parseExchangeDepthPayload(leg, payload, {
+        getOrderBook: () => localOrderBook,
+        setOrderBook: (next) => {
+          localOrderBook = next
+        },
+      })
       if (snapshot) onBook(snapshot)
     }
 
@@ -216,6 +236,20 @@ function createSocketForLeg(leg: ExchangeLegStreamSpec): WebSocket {
   if (exchangeId === "bitget" && (leg.marketType === "spot" || leg.marketType === "future")) {
     return new WebSocket("wss://ws.bitget.com/v2/ws/public")
   }
+  if (exchangeId === "bybit" && leg.marketType === "spot") {
+    return new WebSocket("wss://stream.bybit.com/v5/public/spot")
+  }
+  if (exchangeId === "kucoin" && leg.marketType === "spot") {
+    return new WebSocket("wss://x-push-spot.kucoin.com")
+  }
+  if (exchangeId === "okx" && leg.marketType === "spot") {
+    return new WebSocket("wss://ws.okx.com:8443/ws/v5/public")
+  }
+  if (exchangeId === "bingx" && leg.marketType === "spot") {
+    const socket = new WebSocket("wss://open-api-ws.bingx.com/market")
+    socket.binaryType = "arraybuffer"
+    return socket
+  }
   throw new Error(`Exchange nao suportada: ${leg.exchangeId} ${leg.marketType}`)
 }
 
@@ -277,6 +311,53 @@ function sendSubscribe(ws: WebSocket, leg: ExchangeLegStreamSpec) {
             instId: toBitgetSymbol(leg.asset),
           },
         ],
+      })
+    )
+    return
+  }
+  if (exchangeId === "bybit" && leg.marketType === "spot") {
+    ws.send(
+      JSON.stringify({
+        op: "subscribe",
+        args: [`orderbook.50.${toBybitSymbol(leg.asset)}`],
+      })
+    )
+    return
+  }
+  if (exchangeId === "kucoin" && leg.marketType === "spot") {
+    ws.send(
+      JSON.stringify({
+        id: String(Date.now()),
+        action: "SUBSCRIBE",
+        channel: "obu",
+        tradeType: "SPOT",
+        symbol: toKucoinSymbol(leg.asset),
+        depth: "5",
+        rpiFilter: 0,
+      })
+    )
+    return
+  }
+  if (exchangeId === "okx" && leg.marketType === "spot") {
+    ws.send(
+      JSON.stringify({
+        op: "subscribe",
+        args: [
+          {
+            channel: "books5",
+            instId: toOkxSymbol(leg.asset),
+          },
+        ],
+      })
+    )
+    return
+  }
+  if (exchangeId === "bingx" && leg.marketType === "spot") {
+    ws.send(
+      JSON.stringify({
+        id: String(Date.now()),
+        reqType: "sub",
+        dataType: `${toBingxSymbol(leg.asset)}@depth`,
       })
     )
     return
@@ -343,6 +424,53 @@ function sendUnsubscribe(ws: WebSocket, leg: ExchangeLegStreamSpec) {
         ],
       })
     )
+    return
+  }
+  if (exchangeId === "bybit" && leg.marketType === "spot") {
+    ws.send(
+      JSON.stringify({
+        op: "unsubscribe",
+        args: [`orderbook.50.${toBybitSymbol(leg.asset)}`],
+      })
+    )
+    return
+  }
+  if (exchangeId === "kucoin" && leg.marketType === "spot") {
+    ws.send(
+      JSON.stringify({
+        id: String(Date.now()),
+        action: "UNSUBSCRIBE",
+        channel: "obu",
+        tradeType: "SPOT",
+        symbol: toKucoinSymbol(leg.asset),
+        depth: "5",
+        rpiFilter: 0,
+      })
+    )
+    return
+  }
+  if (exchangeId === "okx" && leg.marketType === "spot") {
+    ws.send(
+      JSON.stringify({
+        op: "unsubscribe",
+        args: [
+          {
+            channel: "books5",
+            instId: toOkxSymbol(leg.asset),
+          },
+        ],
+      })
+    )
+    return
+  }
+  if (exchangeId === "bingx" && leg.marketType === "spot") {
+    ws.send(
+      JSON.stringify({
+        id: String(Date.now()),
+        reqType: "unsub",
+        dataType: `${toBingxSymbol(leg.asset)}@depth`,
+      })
+    )
   }
 }
 
@@ -365,17 +493,70 @@ function startHeartbeat(ws: WebSocket, leg: ExchangeLegStreamSpec): ReturnType<t
     }, 20_000)
   }
 
+  if (exchangeId === "okx") {
+    return setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send("ping")
+      }
+    }, 25_000)
+  }
+
   return null
 }
 
-async function parseExchangeDepthMessage(
+function handleExchangeControlMessage(
   leg: ExchangeLegStreamSpec,
-  rawPayload: string | ArrayBuffer | Blob
-): Promise<ExchangeDepthSnapshot | null> {
+  ws: WebSocket,
+  payload: any | Uint8Array | string | null
+): boolean {
   const exchangeId = leg.exchangeId.toLowerCase()
 
-  const payload = await decodeSocketPayload(rawPayload)
-  if (!payload) return null
+  if (exchangeId === "bingx") {
+    if (typeof payload === "string") {
+      const normalized = payload.trim().toLowerCase()
+      if (normalized === "ping") {
+        ws.send("Pong")
+        return true
+      }
+      if (normalized === "pong") {
+        return true
+      }
+    }
+    if (payload?.ping != null) {
+      ws.send(JSON.stringify({ pong: payload.ping }))
+      return true
+    }
+    if ((payload?.code === 0 || payload?.success === true) && payload?.data == null) {
+      return true
+    }
+  }
+
+  if (exchangeId === "okx" && payload === "pong") {
+    return true
+  }
+
+  if (exchangeId === "kucoin" && (payload?.type === "welcome" || payload?.type === "ack")) {
+    return true
+  }
+
+  if (exchangeId === "bybit" && (payload?.op === "subscribe" || payload?.success === true)) {
+    return true
+  }
+
+  return false
+}
+
+function parseExchangeDepthPayload(
+  leg: ExchangeLegStreamSpec,
+  payload: any | Uint8Array | string | null,
+  state?: {
+    getOrderBook: () => LocalOrderBookState | null
+    setOrderBook: (next: LocalOrderBookState | null) => void
+  }
+): ExchangeDepthSnapshot | null {
+  const exchangeId = leg.exchangeId.toLowerCase()
+
+  if (!payload || typeof payload === "string") return null
 
   if (exchangeId === "mexc" && leg.marketType === "spot") {
     if (payload instanceof Uint8Array) {
@@ -434,6 +615,30 @@ async function parseExchangeDepthMessage(
   if (exchangeId === "gate" && leg.marketType === "future") {
     if (!payload?.result) return null
     return buildGateFuturesSnapshot(payload.result, payload.time_ms ?? payload.time ?? Date.now())
+  }
+  if (exchangeId === "bybit" && leg.marketType === "spot") {
+    if (!payload?.topic || !payload?.data) return null
+    return buildBybitSpotSnapshot(payload, state)
+  }
+  if (exchangeId === "kucoin" && leg.marketType === "spot") {
+    if (!payload?.d) return null
+    return buildDepthSnapshot(
+      payload.d.b,
+      payload.d.a,
+      payload.d.ts ?? payload.d.t ?? payload.d.time ?? payload.d.M ?? payload.P ?? Date.now()
+    )
+  }
+  if (exchangeId === "okx" && leg.marketType === "spot") {
+    if (!Array.isArray(payload?.data) || payload.data.length === 0) return null
+    const entry = payload.data[0]
+    return buildDepthSnapshot(
+      entry?.bids,
+      entry?.asks,
+      entry?.ts ?? Date.now()
+    )
+  }
+  if (exchangeId === "bingx" && leg.marketType === "spot") {
+    return buildBingxSpotSnapshot(payload, state)
   }
   return null
 }
@@ -587,7 +792,19 @@ function toNumber(value: unknown): number | null {
 
 function normalizeTimestamp(value: unknown): number {
   const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN
-  return Number.isFinite(parsed) ? parsed : Date.now()
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return Date.now()
+  }
+  if (parsed > 1e17) {
+    return Math.trunc(parsed / 1_000_000)
+  }
+  if (parsed > 1e14) {
+    return Math.trunc(parsed / 1_000)
+  }
+  if (parsed < 1e12) {
+    return Math.trunc(parsed * 1_000)
+  }
+  return Math.trunc(parsed)
 }
 
 function toBinanceSymbol(asset: string): string {
@@ -615,18 +832,141 @@ function toBitgetSymbol(asset: string): string {
   return asset.replace("/", "").replace(/[^A-Z0-9]/gi, "").toUpperCase()
 }
 
-async function decodeSocketPayload(rawPayload: string | ArrayBuffer | Blob): Promise<any | Uint8Array | null> {
+function toBybitSymbol(asset: string): string {
+  return asset.replace("/", "").replace(/[^A-Z0-9]/gi, "").toUpperCase()
+}
+
+function toKucoinSymbol(asset: string): string {
+  return asset.replace("/", "-").replace(/[^A-Z0-9-]/gi, "").toUpperCase()
+}
+
+function toOkxSymbol(asset: string): string {
+  return asset.replace("/", "-").replace(/[^A-Z0-9-]/gi, "").toUpperCase()
+}
+
+function toBingxSymbol(asset: string): string {
+  return asset.replace("/", "-").replace(/[^A-Z0-9-]/gi, "").toUpperCase()
+}
+
+function buildBybitSpotSnapshot(
+  payload: any,
+  state?: {
+    getOrderBook: () => LocalOrderBookState | null
+    setOrderBook: (next: LocalOrderBookState | null) => void
+  }
+): ExchangeDepthSnapshot | null {
+  const messageType = payload?.type
+  const data = payload?.data
+  if (!data) return null
+
+  if (!state) {
+    return buildDepthSnapshot(data.b ?? data.bids, data.a ?? data.asks, payload.ts ?? Date.now())
+  }
+
+  const current =
+    messageType === "snapshot" || !state.getOrderBook()
+      ? { bids: new Map<string, number>(), asks: new Map<string, number>() }
+      : state.getOrderBook()!
+
+  if (messageType === "snapshot") {
+    current.bids.clear()
+    current.asks.clear()
+  }
+
+  applyPriceLevels(current.bids, data.b ?? data.bids)
+  applyPriceLevels(current.asks, data.a ?? data.asks)
+  state.setOrderBook(current)
+
+  return snapshotFromLocalBook(current, payload.ts ?? Date.now())
+}
+
+function buildBingxSpotSnapshot(
+  payload: any,
+  state?: {
+    getOrderBook: () => LocalOrderBookState | null
+    setOrderBook: (next: LocalOrderBookState | null) => void
+  }
+): ExchangeDepthSnapshot | null {
+  const embeddedData =
+    typeof payload?.data === "string" ? safeJsonParse(payload.data) ?? payload.data : payload?.data
+  const source = embeddedData?.data ?? embeddedData ?? payload
+  if (!source) return null
+
+  const bidsSource = source?.bids ?? source?.b
+  const asksSource = source?.asks ?? source?.a
+  const timestamp = source?.E ?? source?.T ?? source?.ts ?? source?.timestamp ?? payload?.ts ?? payload?.timestamp ?? Date.now()
+
+  if (!state) {
+    return buildDepthSnapshot(bidsSource, asksSource, timestamp)
+  }
+
+  const current = state.getOrderBook() ?? { bids: new Map<string, number>(), asks: new Map<string, number>() }
+  applyPriceLevels(current.bids, bidsSource)
+  applyPriceLevels(current.asks, asksSource)
+  state.setOrderBook(current)
+  return snapshotFromLocalBook(current, timestamp)
+}
+
+function applyPriceLevels(side: OrderBookSide, levelsSource: unknown) {
+  if (!Array.isArray(levelsSource)) return
+  for (const entry of levelsSource) {
+    if (!Array.isArray(entry) || entry.length < 2) continue
+    const price = toNumber(entry[0])
+    const amount = toNumber(entry[1])
+    if (price == null || amount == null) continue
+    const priceKey = String(price)
+    if (amount <= 0) {
+      side.delete(priceKey)
+      continue
+    }
+    side.set(priceKey, amount)
+  }
+}
+
+function snapshotFromLocalBook(orderBook: LocalOrderBookState, timestamp: unknown): ExchangeDepthSnapshot | null {
+  const bids = [...orderBook.bids.entries()]
+    .map(([price, amount]) => ({ price: Number(price), amount }))
+    .filter((level) => Number.isFinite(level.price) && level.amount > 0)
+    .sort((left, right) => right.price - left.price)
+    .slice(0, 10)
+
+  const asks = [...orderBook.asks.entries()]
+    .map(([price, amount]) => ({ price: Number(price), amount }))
+    .filter((level) => Number.isFinite(level.price) && level.amount > 0)
+    .sort((left, right) => left.price - right.price)
+    .slice(0, 10)
+
+  if (bids.length === 0 || asks.length === 0) return null
+
+  return {
+    bids,
+    asks,
+    timestamp: normalizeTimestamp(timestamp),
+    bestBidPrice: bids[0].price,
+    bestBidAmount: bids[0].amount,
+    bestAskPrice: asks[0].price,
+    bestAskAmount: asks[0].amount,
+  }
+}
+
+async function decodeSocketPayload(rawPayload: string | ArrayBuffer | Blob): Promise<any | Uint8Array | string | null> {
   if (typeof rawPayload === "string") {
-    return safeJsonParse(rawPayload)
+    return safeJsonParse(rawPayload) ?? rawPayload.trim()
   }
 
   const buffer = rawPayload instanceof Blob ? await rawPayload.arrayBuffer() : rawPayload
   const u8 = new Uint8Array(buffer)
   if (!looksLikeTextPayload(u8)) {
     const gzipBinary = await tryDecompressBinary(buffer, "gzip")
-    if (gzipBinary) return gzipBinary
+    const gzipDecoded = decodeMaybeJsonBinary(gzipBinary)
+    if (gzipDecoded) return gzipDecoded
     const deflateBinary = await tryDecompressBinary(buffer, "deflate")
-    return deflateBinary ?? u8
+    const deflateDecoded = decodeMaybeJsonBinary(deflateBinary)
+    if (deflateDecoded) return deflateDecoded
+    const fflateDecoded = decodeCompressedBinaryWithFflate(u8)
+    if (fflateDecoded) return fflateDecoded
+    const directDecoded = decodeMaybeJsonBinary(u8)
+    return directDecoded ?? u8
   }
 
   const directText = decodeUtf8(buffer)
@@ -638,7 +978,29 @@ async function decodeSocketPayload(rawPayload: string | ArrayBuffer | Blob): Pro
   if (gzipJson) return gzipJson
 
   const deflateText = await tryDecompressText(buffer, "deflate")
-  return safeJsonParse(deflateText)
+  const deflateJson = safeJsonParse(deflateText)
+  if (deflateJson) return deflateJson
+
+  return directText ?? gzipText ?? deflateText
+}
+
+function decodeMaybeJsonBinary(payload: Uint8Array | null): any | string | null {
+  if (!payload || payload.length === 0) return null
+  const text = decodeUtf8(payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength))
+  if (!text) return null
+  return safeJsonParse(text) ?? text
+}
+
+function decodeCompressedBinaryWithFflate(payload: Uint8Array): any | string | null {
+  try {
+    if (payload.length >= 2 && payload[0] === 0x1f && payload[1] === 0x8b) {
+      return safeJsonParse(strFromU8(gunzipSync(payload))) ?? strFromU8(gunzipSync(payload))
+    }
+    const unzlibText = strFromU8(unzlibSync(payload))
+    return safeJsonParse(unzlibText) ?? unzlibText
+  } catch {
+    return null
+  }
 }
 
 function looksLikeTextPayload(bytes: Uint8Array): boolean {

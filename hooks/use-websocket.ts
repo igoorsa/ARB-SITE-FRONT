@@ -146,7 +146,14 @@ export function useWebSocket({
   }, [url, enabled, reconnectAttempts, reconnectInterval])
 
   useEffect(() => {
-    setState((prev) => ({ ...prev, hasFreshData: false, error: null }))
+    columnsRef.current = null
+    setState({
+      data: [],
+      isConnected: false,
+      error: null,
+      lastUpdate: null,
+      hasFreshData: false,
+    })
     connect()
 
     return () => {

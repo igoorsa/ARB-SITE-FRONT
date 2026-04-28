@@ -22,13 +22,14 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useExchangePairBooks } from "@/hooks/use-exchange-pair-books"
-import { fetchCandles, fetchNetworks } from "@/lib/api"
+import { fetchCandles, fetchLatest, fetchNetworks } from "@/lib/api"
 import type { AssetNetworksResponse, CandleData, SpreadItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -88,6 +89,30 @@ const EXCHANGE_FEES: Record<string, ExchangeFeeProfile> = {
     notes: "Desconto de 20% no Spot pagando com BGB.",
     url: "https://www.bitget.com/fee",
   },
+  bingx: {
+    spot: { maker: 0.1, taker: 0.1 },
+    future: { maker: 0.02, taker: 0.05 },
+    notes: "Spot pode variar por par; perp base para usuarios nao VIP.",
+    url: "https://bingx.com/en/support/articles/360027240173-Fee-Schedule",
+  },
+  bybit: {
+    spot: { maker: 0.1, taker: 0.1 },
+    future: { maker: 0.02, taker: 0.055 },
+    notes: "Taxas base para Non-VIP / VIP 0; podem variar por regiao.",
+    url: "https://www.bybit.com/en/help-center/article/Trading-Fee-Structure/",
+  },
+  kucoin: {
+    spot: { maker: 0.1, taker: 0.1 },
+    future: { maker: 0.02, taker: 0.06 },
+    notes: "Spot classe A VIP 0; ha desconto ao pagar taxas com KCS.",
+    url: "https://www.kucoin.com/support/48142946141635",
+  },
+  okx: {
+    spot: { maker: 0.08, taker: 0.1 },
+    future: { maker: 0.02, taker: 0.05 },
+    notes: "Taxas base de usuario regular; pares/grupos especificos podem variar.",
+    url: "https://www.okx.com/help/fee-details",
+  },
 }
 
 export function PairMonitorPage() {
@@ -141,15 +166,47 @@ export function PairMonitorPage() {
       setLatestItem(null)
       return
     }
-    setLatestItem(
-      buildFallbackSpreadItem(
-        pairKey,
-        fallbackPairType,
-        fallbackCoin,
-        fallbackSpotExchange,
-        fallbackFuturesExchange
-      )
+
+    let isActive = true
+    const fallbackItem = buildFallbackSpreadItem(
+      pairKey,
+      fallbackPairType,
+      fallbackCoin,
+      fallbackSpotExchange,
+      fallbackFuturesExchange
     )
+
+    setLatestItem(fallbackItem)
+
+    const loadLatestItem = async () => {
+      try {
+        const [snapshot] = await fetchLatest({
+          pair_type: fallbackPairType,
+          pair_key: pairKey,
+          lite: true,
+          limit: 1,
+        })
+
+        if (!isActive || !snapshot) {
+          return
+        }
+
+        setLatestItem({
+          ...fallbackItem,
+          ...snapshot,
+        })
+      } catch {
+        if (isActive) {
+          setLatestItem(fallbackItem)
+        }
+      }
+    }
+
+    loadLatestItem()
+
+    return () => {
+      isActive = false
+    }
   }, [pairKey, fallbackPairType, fallbackCoin, fallbackSpotExchange, fallbackFuturesExchange])
 
   useEffect(() => {
@@ -728,7 +785,7 @@ function patchSpreadItemWithRealtimeBooks(
         legBBook.bestAskAmount * legBBook.bestAskPrice,
         legABook.bestBidAmount * legABook.bestBidPrice
       ),
-      updated_at: new Date(Math.max(legABook.timestamp, legBBook.timestamp)).toISOString(),
+      updated_at: toSafeIsoString(Math.max(legABook.timestamp, legBBook.timestamp)),
     }
   }
 
@@ -753,7 +810,7 @@ function patchSpreadItemWithRealtimeBooks(
       legABook.bestBidAmount * legABook.bestBidPrice,
       legBBook.bestAskAmount * legBBook.bestAskPrice
     ),
-    updated_at: new Date(Math.max(legABook.timestamp, legBBook.timestamp)).toISOString(),
+    updated_at: toSafeIsoString(Math.max(legABook.timestamp, legBBook.timestamp)),
   }
 }
 
@@ -776,6 +833,11 @@ function buildFallbackSpreadItem(
     exit_volume_usdt: 0,
     updated_at: new Date(0).toISOString(),
   }
+}
+
+function toSafeIsoString(value: number) {
+  const timestamp = Number.isFinite(value) && value > 0 ? value : Date.now()
+  return new Date(timestamp).toISOString()
 }
 
 function buildAnalytics(candles: CandleData[]) {
@@ -1156,6 +1218,9 @@ function DepthLevelsDialog({
       <DialogContent className="max-h-[88vh] w-[99.5vw] max-w-none overflow-y-auto p-3 sm:p-4 lg:w-[99vw]">
         <DialogHeader>
           <DialogTitle className="text-base sm:text-lg">Profundidade por corretora</DialogTitle>
+          <DialogDescription>
+            Visualize os niveis de compra e venda recebidos em tempo real para cada corretora deste par.
+          </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <ExchangeDepthBlock

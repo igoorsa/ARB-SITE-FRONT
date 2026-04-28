@@ -278,9 +278,10 @@ export default function HomePage() {
       deferredDisplayData.filter(
         (item) =>
           (item.pair_type ?? "spot_future") === selectedView &&
-          hasPositiveOpportunity(item)
+          hasPositiveOpportunity(item) &&
+          matchesActiveFilters(item, debouncedFilters, minimumPositiveSpread)
       ),
-    [deferredDisplayData, selectedView]
+    [debouncedFilters, deferredDisplayData, minimumPositiveSpread, selectedView]
   )
   const viewMeta = selectedView === "spot_future"
     ? {
@@ -472,4 +473,34 @@ function areItemsEquivalent(previousItem: SpreadItem, nextItem: SpreadItem) {
     previousItem.best_future_ask === nextItem.best_future_ask &&
     previousItem.funding_rate === nextItem.funding_rate
   )
+}
+
+function matchesActiveFilters(
+  item: SpreadItem,
+  filters: FilterState,
+  minimumPositiveSpread: number
+) {
+  if (filters.coin && !item.symbol.toLowerCase().includes(filters.coin.toLowerCase())) {
+    return false
+  }
+
+  if (
+    filters.spot_exchange.length > 0 &&
+    !filters.spot_exchange.some((exchange) => item.spot_exchange.toLowerCase() === exchange.toLowerCase())
+  ) {
+    return false
+  }
+
+  if (
+    filters.futures_exchange.length > 0 &&
+    !filters.futures_exchange.some((exchange) => item.futures_exchange.toLowerCase() === exchange.toLowerCase())
+  ) {
+    return false
+  }
+
+  if (item.entry_spread_pct < minimumPositiveSpread) {
+    return false
+  }
+
+  return true
 }
