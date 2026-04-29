@@ -8,7 +8,6 @@ import type {
 
 const DEFAULT_HTTP_BASE_URL = "http://127.0.0.1:8000"
 const DEFAULT_WS_BASE_URL = "ws://127.0.0.1:8000"
-const API_PROXY_BASE_URL = "/api"
 
 function normalizeBaseUrl(value: string | undefined, fallback: string): string {
   const candidate = value?.trim() || fallback
@@ -18,6 +17,20 @@ function normalizeBaseUrl(value: string | undefined, fallback: string): string {
 function resolveWebSocketBaseUrl(): string {
   const configuredWsUrl = process.env.NEXT_PUBLIC_WS_URL?.trim()
   if (configuredWsUrl) {
+    if (
+      typeof window !== "undefined" &&
+      ["127.0.0.1", "localhost"].includes(window.location.hostname) === false
+    ) {
+      try {
+        const url = new URL(configuredWsUrl)
+        if (["127.0.0.1", "localhost"].includes(url.hostname)) {
+          url.hostname = window.location.hostname
+          return normalizeBaseUrl(url.toString(), DEFAULT_WS_BASE_URL)
+        }
+      } catch {
+        return normalizeBaseUrl(configuredWsUrl, DEFAULT_WS_BASE_URL)
+      }
+    }
     return normalizeBaseUrl(configuredWsUrl, DEFAULT_WS_BASE_URL)
   }
 
@@ -32,7 +45,7 @@ function resolveWebSocketBaseUrl(): string {
   return DEFAULT_WS_BASE_URL
 }
 
-const API_BASE_URL = API_PROXY_BASE_URL
+const API_BASE_URL = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_URL, DEFAULT_HTTP_BASE_URL)
 const WS_BASE_URL = resolveWebSocketBaseUrl()
 
 export const apiConfig = {
