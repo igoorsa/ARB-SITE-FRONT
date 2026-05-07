@@ -61,6 +61,26 @@ export interface HealthStatus {
   redis: string
 }
 
+export interface AccountPlan {
+  key: string
+  name: string
+  description: string
+  max_ws_items: number | null
+  max_latest_items: number | null
+  max_ws_connections: number
+  http_requests_per_minute: number
+  ws_interval_seconds: number
+  candle_max_minutes: number | null
+  max_entry_spread_pct_by_pair_type: Record<string, number | null>
+}
+
+export interface AccountProfile {
+  sub: string
+  email: string | null
+  username: string | null
+  plan: AccountPlan
+}
+
 export interface AssetNetworkRecord {
   exchange_id: string
   asset: string

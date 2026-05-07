@@ -1,506 +1,141 @@
 "use client"
 
-import { useDeferredValue, useEffect, useMemo, useState, useTransition } from "react"
-import { ArrowRightLeft, CandlestickChart, FileText, Settings2 } from "lucide-react"
-import { Filters } from "@/components/filters"
-import { Header } from "@/components/header"
-import { SpreadTable } from "@/components/spread-table"
-import { StatsCards } from "@/components/stats-cards"
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
-  SidebarProvider,
-  SidebarRail,
-} from "@/components/ui/sidebar"
-import { useWebSocket } from "@/hooks/use-websocket"
-import { createWebSocketUrl, fetchLatest } from "@/lib/api"
-import type { FilterState, SpreadItem } from "@/lib/types"
+import Image from "next/image"
+import Link from "next/link"
+import { ArrowRight, BarChart3, CheckCircle2, Clock3, Languages, Moon, ShieldCheck, Signal, Sun, Workflow } from "lucide-react"
+import { AuthCallbackHandler, signInRedirect } from "@/components/auth-provider"
+import { usePreferences } from "@/components/preferences-provider"
+import { Button } from "@/components/ui/button"
 
-const MOCK_DATA: SpreadItem[] = [
-  {
-    pair_key: "gate|binance|BTC/USDT",
-    pair_type: "spot_future",
-    symbol: "BTC/USDT",
-    spot_exchange: "gate",
-    futures_exchange: "binance",
-    entry_spread_pct: 0.82,
-    exit_spread_pct: 0.21,
-    entry_volume_usdt: 154320,
-    exit_volume_usdt: 98500,
-    spot_volume_24h_usdt: 24500000,
-    future_volume_24h_usdt: 81300000,
-    best_spot_bid: 67234.5,
-    best_spot_ask: 67238.2,
-    best_future_bid: 67784.3,
-    best_future_ask: 67788.1,
-    funding_rate: 0.00015,
-    updated_at: new Date().toISOString(),
-  },
-  {
-    pair_key: "mexc|binance|ETH/USDT",
-    pair_type: "spot_future",
-    symbol: "ETH/USDT",
-    spot_exchange: "mexc",
-    futures_exchange: "binance",
-    entry_spread_pct: 1.24,
-    exit_spread_pct: 0.45,
-    entry_volume_usdt: 89200,
-    exit_volume_usdt: 65300,
-    spot_volume_24h_usdt: 18700000,
-    future_volume_24h_usdt: 54200000,
-    best_spot_bid: 3421.5,
-    best_spot_ask: 3422.1,
-    best_future_bid: 3464.2,
-    best_future_ask: 3464.8,
-    funding_rate: 0.00032,
-    updated_at: new Date().toISOString(),
-  },
-]
+const LOGO_SRC = "/logo.png?v=20260506"
 
-const FILTERS_STORAGE_KEY = "arbitrage-monitor:filters"
-const VIEW_STORAGE_KEY = "arbitrage-monitor:view"
-const SECTION_STORAGE_KEY = "arbitrage-monitor:section"
-
-type MonitorView = "spot_future" | "spot_spot"
-type AppSection = "monitor" | "settings" | "terms"
-
-const DEFAULT_FILTERS: FilterState = {
-  spot_exchange: [],
-  futures_exchange: [],
-  coin: "",
-  min_entry_spread_pct: 0,
-  refresh_interval_seconds: 5,
-}
-
-const POSITIVE_THRESHOLD = 0.000001
-
-function useDebouncedValue<T>(value: T, delay = 350): T {
-  const [debouncedValue, setDebouncedValue] = useState(value)
-
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      setDebouncedValue(value)
-    }, delay)
-
-    return () => clearTimeout(timeout)
-  }, [value, delay])
-
-  return debouncedValue
-}
-
-function resolveMinimumPositiveSpread(userValue: number | undefined): number {
-  return Math.max(userValue ?? 0, POSITIVE_THRESHOLD)
-}
-
-function hasPositiveOpportunity(item: SpreadItem): boolean {
-  return item.entry_spread_pct > 0
-}
-
-export default function HomePage() {
-  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS)
-  const [selectedView, setSelectedView] = useState<MonitorView>("spot_future")
-  const [selectedSection, setSelectedSection] = useState<AppSection>("monitor")
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [serverData, setServerData] = useState<SpreadItem[]>([])
-  const [useMockData, setUseMockData] = useState(false)
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const [isTablePending, startTableTransition] = useTransition()
-  const [hasLoadedStoredFilters, setHasLoadedStoredFilters] = useState(false)
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return
-    }
-    try {
-      const stored = window.sessionStorage.getItem(FILTERS_STORAGE_KEY)
-      const storedView = window.sessionStorage.getItem(VIEW_STORAGE_KEY)
-      const storedSection = window.sessionStorage.getItem(SECTION_STORAGE_KEY)
-      if (storedView === "spot_future" || storedView === "spot_spot") {
-        setSelectedView(storedView)
-      }
-      if (storedSection === "monitor" || storedSection === "settings" || storedSection === "terms") {
-        setSelectedSection(storedSection)
-      }
-      if (!stored) {
-        setHasLoadedStoredFilters(true)
-        return
-      }
-      const parsed = JSON.parse(stored) as Partial<FilterState>
-      setFilters({
-        spot_exchange: Array.isArray(parsed.spot_exchange) ? parsed.spot_exchange : DEFAULT_FILTERS.spot_exchange,
-        futures_exchange: Array.isArray(parsed.futures_exchange) ? parsed.futures_exchange : DEFAULT_FILTERS.futures_exchange,
-        coin: typeof parsed.coin === "string" ? parsed.coin.toUpperCase() : DEFAULT_FILTERS.coin,
-        min_entry_spread_pct: typeof parsed.min_entry_spread_pct === "number" ? parsed.min_entry_spread_pct : DEFAULT_FILTERS.min_entry_spread_pct,
-        refresh_interval_seconds:
-          typeof parsed.refresh_interval_seconds === "number"
-            ? Math.max(1, parsed.refresh_interval_seconds)
-            : DEFAULT_FILTERS.refresh_interval_seconds,
-      })
-    } catch {
-      window.sessionStorage.removeItem(FILTERS_STORAGE_KEY)
-    } finally {
-      setHasLoadedStoredFilters(true)
-    }
-  }, [])
-
-  const debouncedFilters = useDebouncedValue(filters)
-  const minimumPositiveSpread = useMemo(
-    () => resolveMinimumPositiveSpread(debouncedFilters.min_entry_spread_pct),
-    [debouncedFilters.min_entry_spread_pct]
-  )
-
-  useEffect(() => {
-    if (!hasLoadedStoredFilters || typeof window === "undefined") {
-      return
-    }
-    window.sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters))
-    window.sessionStorage.setItem(VIEW_STORAGE_KEY, selectedView)
-    window.sessionStorage.setItem(SECTION_STORAGE_KEY, selectedSection)
-  }, [filters, hasLoadedStoredFilters, selectedView, selectedSection])
-
-  const wsUrl = useMemo(() => {
-    return createWebSocketUrl({
-      pair_type: selectedView,
-      spot_exchange: debouncedFilters.spot_exchange || undefined,
-      futures_exchange: debouncedFilters.futures_exchange || undefined,
-      coin: debouncedFilters.coin || undefined,
-      min_entry_spread_pct: minimumPositiveSpread,
-      interval_seconds: debouncedFilters.refresh_interval_seconds || 5,
-      lite: true,
-      delta: true,
-      msgpack: true,
-    })
-  }, [debouncedFilters, minimumPositiveSpread, selectedView])
-
-  const { data: wsData, isConnected, lastUpdate, hasFreshData } = useWebSocket({
-    url: wsUrl,
-    enabled: hasLoadedStoredFilters && !useMockData && !isRefreshing,
-  })
-
-  useEffect(() => {
-    if (!hasLoadedStoredFilters) {
-      return
-    }
-    let isActive = true
-
-    const loadLatestSnapshot = async () => {
-      setIsRefreshing(true)
-
-      try {
-        const data = await fetchLatest({
-          pair_type: selectedView,
-          spot_exchange: debouncedFilters.spot_exchange || undefined,
-          futures_exchange: debouncedFilters.futures_exchange || undefined,
-          coin: debouncedFilters.coin || undefined,
-          min_entry_spread_pct: minimumPositiveSpread,
-          lite: true,
-        })
-
-        if (!isActive) return
-
-        setServerData(data)
-        setUseMockData(false)
-      } catch {
-        if (!isActive) return
-
-        setUseMockData(true)
-        setServerData(MOCK_DATA)
-      } finally {
-        if (isActive) {
-          setIsRefreshing(false)
-        }
-      }
-    }
-
-    loadLatestSnapshot()
-
-    return () => {
-      isActive = false
-    }
-  }, [debouncedFilters, hasLoadedStoredFilters, minimumPositiveSpread, selectedView])
-
-  useEffect(() => {
-    if (!useMockData && hasFreshData) {
-      startTableTransition(() => {
-        setServerData((previous) => mergeStableRows(previous, wsData))
-      })
-    }
-  }, [hasFreshData, startTableTransition, useMockData, wsData])
-
-  const displayData = useMemo(() => {
-    if (!useMockData) {
-      return serverData
-    }
-
-    return MOCK_DATA.filter((item) => {
-      if (debouncedFilters.coin && !item.symbol.toLowerCase().includes(debouncedFilters.coin.toLowerCase())) {
-        return false
-      }
-      if (
-        debouncedFilters.spot_exchange.length > 0 &&
-        !debouncedFilters.spot_exchange.some(
-          (exchange) => item.spot_exchange.toLowerCase() === exchange.toLowerCase()
-        )
-      ) {
-        return false
-      }
-      if (
-        debouncedFilters.futures_exchange.length > 0 &&
-        !debouncedFilters.futures_exchange.some(
-          (exchange) => item.futures_exchange.toLowerCase() === exchange.toLowerCase()
-        )
-      ) {
-        return false
-      }
-      if (
-        minimumPositiveSpread &&
-        item.entry_spread_pct < minimumPositiveSpread
-      ) {
-        return false
-      }
-      return hasPositiveOpportunity(item)
-    })
-  }, [debouncedFilters, minimumPositiveSpread, serverData, useMockData])
-
-  const deferredDisplayData = useDeferredValue(displayData)
-  const activeData = useMemo(
-    () =>
-      deferredDisplayData.filter(
-        (item) =>
-          (item.pair_type ?? "spot_future") === selectedView &&
-          hasPositiveOpportunity(item) &&
-          matchesActiveFilters(item, debouncedFilters, minimumPositiveSpread)
-      ),
-    [debouncedFilters, deferredDisplayData, minimumPositiveSpread, selectedView]
-  )
-  const viewMeta = selectedView === "spot_future"
-    ? {
-        title: "Future x Spot",
-        description: "Oportunidades entre mercado futuro e mercado spot.",
-      }
-    : {
-        title: "Spot x Spot",
-        description: "Oportunidades entre duas corretoras spot.",
-      }
+export default function LandingPage() {
+  const { language, theme, toggleLanguage, toggleTheme, t } = usePreferences()
+  const isLight = theme === "light"
+  const capabilities = [
+    { title: t("capabilityRealtimeTitle"), description: t("capabilityRealtimeDescription"), icon: Signal },
+    { title: t("capabilityPairTitle"), description: t("capabilityPairDescription"), icon: BarChart3 },
+    { title: t("capabilityPipelineTitle"), description: t("capabilityPipelineDescription"), icon: Workflow },
+  ]
+  const freePlanPoints = [t("freePlanPointOne"), t("freePlanPointTwo"), t("freePlanPointThree")]
+  const rules = [t("ruleData"), t("ruleSpreads"), t("ruleStale"), t("ruleAdvice")]
 
   return (
-    <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
-      <div
-        className="contents"
-      >
-      <div
-        className="contents"
-        onMouseEnter={() => setSidebarOpen(true)}
-        onMouseLeave={() => setSidebarOpen(false)}
-      >
-      <Sidebar collapsible="icon" variant="inset">
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupLabel>Workspace</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive={selectedSection === "monitor"}
-                    tooltip="Monitor"
-                    onClick={() => setSelectedSection("monitor")}
-                  >
-                    <CandlestickChart />
-                    <span>Monitor</span>
-                  </SidebarMenuButton>
-                  <SidebarMenuSub>
-                    <SidebarMenuSubItem>
-                      <SidebarMenuSubButton
-                        isActive={selectedSection === "monitor" && selectedView === "spot_future"}
-                        onClick={() => {
-                          setSelectedSection("monitor")
-                          setSelectedView("spot_future")
-                        }}
-                      >
-                        <span>Future x Spot</span>
-                      </SidebarMenuSubButton>
-                    </SidebarMenuSubItem>
-                    <SidebarMenuSubItem>
-                      <SidebarMenuSubButton
-                        isActive={selectedSection === "monitor" && selectedView === "spot_spot"}
-                        onClick={() => {
-                          setSelectedSection("monitor")
-                          setSelectedView("spot_spot")
-                        }}
-                      >
-                        <span>Spot x Spot</span>
-                      </SidebarMenuSubButton>
-                    </SidebarMenuSubItem>
-                  </SidebarMenuSub>
-                </SidebarMenuItem>
+    <main className="min-h-screen bg-background text-foreground">
+      <AuthCallbackHandler />
+      <header className="border-b border-border bg-card/70 backdrop-blur-sm">
+        <div className="container mx-auto flex items-center justify-between gap-4 px-4 py-4">
+          <Link href="/" className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border bg-background">
+              <Image src={LOGO_SRC} alt="Monitor Arb" width={36} height={36} className="h-9 w-9 rounded-full object-contain" priority />
+            </span>
+            <span className="text-lg font-semibold">Monitor Arb</span>
+          </Link>
 
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive={selectedSection === "settings"}
-                    tooltip="Configuracoes"
-                    onClick={() => setSelectedSection("settings")}
-                  >
-                    <Settings2 />
-                    <span>Configuracoes</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive={selectedSection === "terms"}
-                    tooltip="Termos"
-                    onClick={() => setSelectedSection("terms")}
-                  >
-                    <FileText />
-                    <span>Termos</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-        <SidebarRail />
-      </Sidebar>
-      </div>
-
-      <SidebarInset>
-        <div className="min-h-screen bg-background">
-          <Header
-            isConnected={useMockData ? true : isConnected}
-            lastUpdate={useMockData ? new Date() : lastUpdate}
-          />
-
-          <main className="container mx-auto px-4 py-6">
-            <div className="flex flex-col gap-6">
-          {useMockData && (
-            <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 text-center">
-              <p className="text-sm text-primary">
-                <strong>Modo Demo:</strong> Exibindo dados de demonstração. Configure{" "}
-                NEXT_PUBLIC_API_URL e NEXT_PUBLIC_WS_URL para conectar à sua API.
-              </p>
-            </div>
-          )}
-
-          {selectedSection === "monitor" ? (
-            <>
-              <Filters filters={filters} onFiltersChange={setFilters} pairType={selectedView} />
-
-              <StatsCards data={activeData} />
-
-              <section className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg font-semibold text-foreground">{viewMeta.title}</h2>
-                    <p className="text-sm text-muted-foreground">
-                      {viewMeta.description}
-                    </p>
-                  </div>
-                  <span className="text-sm text-muted-foreground">{activeData.length} resultados</span>
-                </div>
-                <SpreadTable data={activeData} pairType={selectedView} />
-              </section>
-            </>
-          ) : (
-            <section className="rounded-2xl border border-border bg-card p-8">
-              <div className="max-w-xl">
-                <h2 className="text-xl font-semibold text-foreground">
-                  {selectedSection === "settings" ? "Configuracoes" : "Termos"}
-                </h2>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {selectedSection === "settings"
-                    ? "Area reservada para configuracoes do painel. Pode preencher depois."
-                    : "Area reservada para termos e informacoes legais. Pode preencher depois."}
-                </p>
-              </div>
-            </section>
-          )}
-            </div>
-          </main>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={toggleLanguage}>
+              <Languages className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">{language === "pt" ? "EN" : "PT"}</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={toggleTheme}>
+              {isLight ? <Moon className="h-4 w-4 sm:mr-2" /> : <Sun className="h-4 w-4 sm:mr-2" />}
+              <span className="hidden sm:inline">{isLight ? t("themeDark") : t("themeLight")}</span>
+            </Button>
+            <Button size="sm" onClick={() => signInRedirect("/monitor")}>
+                <span className="hidden sm:inline">{t("openMonitoring")}</span>
+                <ArrowRight className="h-4 w-4 sm:ml-2" />
+            </Button>
+          </div>
         </div>
-      </SidebarInset>
-      </div>
-    </SidebarProvider>
+      </header>
+
+      <section className="border-b border-border">
+        <div className="container mx-auto grid min-h-[calc(100vh-73px)] items-center gap-10 px-4 py-12 lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="max-w-3xl">
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-sm text-muted-foreground">
+              <Clock3 className="h-4 w-4 text-primary" />
+              {t("operationalIntelligence")}
+            </div>
+            <h1 className="text-4xl font-bold leading-tight sm:text-5xl lg:text-6xl">{t("landingTitle")}</h1>
+            <p className="mt-6 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">{t("landingDescription")}</p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Button size="lg" className="h-12 px-5" onClick={() => signInRedirect("/monitor")}>
+                  {t("enterMonitor")}
+                  <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+              <Button asChild variant="outline" size="lg" className="h-12 px-5">
+                <Link href="#regras">{t("viewUsageRules")}</Link>
+              </Button>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-border bg-card p-6">
+            <div className="mb-5">
+              <div className="mb-2 text-sm font-medium uppercase tracking-[0.16em] text-primary">
+                Free
+              </div>
+              <h2 className="text-2xl font-semibold text-foreground">{t("freePlanTitle")}</h2>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("freePlanDescription")}</p>
+            </div>
+
+            <div className="space-y-3">
+              {freePlanPoints.map((point) => (
+                <div key={point} className="flex items-start gap-3 rounded-lg bg-secondary/45 px-4 py-3">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <span className="text-sm leading-5 text-foreground">{point}</span>
+                </div>
+              ))}
+            </div>
+
+            <Button className="mt-6 h-11 w-full" onClick={() => signInRedirect("/monitor")}>
+              {t("enterMonitor")}
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-border py-12">
+        <div className="container mx-auto px-4">
+          <div className="mb-8 max-w-2xl">
+            <h2 className="text-2xl font-semibold">{t("developingTitle")}</h2>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("developingDescription")}</p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            {capabilities.map((item) => (
+              <article key={item.title} className="rounded-lg border border-border bg-card p-5">
+                <item.icon className="mb-4 h-5 w-5 text-primary" />
+                <h3 className="font-semibold">{item.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.description}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="regras" className="py-12">
+        <div className="container mx-auto grid gap-8 px-4 lg:grid-cols-[0.8fr_1.2fr]">
+          <div>
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+              <ShieldCheck className="h-5 w-5 text-primary" />
+            </div>
+            <h2 className="text-2xl font-semibold">{t("rulesTitle")}</h2>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">{t("rulesDescription")}</p>
+          </div>
+
+          <div className="grid gap-3">
+            {rules.map((rule, index) => (
+              <div key={rule} className="flex gap-4 rounded-lg border border-border bg-card p-4">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-secondary text-sm font-semibold">
+                  {index + 1}
+                </span>
+                <p className="text-sm leading-6 text-muted-foreground">{rule}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </main>
   )
-}
-
-function mergeStableRows(previous: SpreadItem[], incoming: SpreadItem[]) {
-  if (previous.length === 0) {
-    return incoming
-  }
-
-  const incomingByKey = new Map(incoming.map((item) => [item.pair_key, item]))
-  const next: SpreadItem[] = []
-
-  for (const oldItem of previous) {
-    const updated = incomingByKey.get(oldItem.pair_key)
-    if (updated) {
-      next.push(areItemsEquivalent(oldItem, updated) ? oldItem : updated)
-      incomingByKey.delete(oldItem.pair_key)
-    }
-  }
-
-  const remaining = Array.from(incomingByKey.values()).sort((left, right) =>
-    left.symbol.localeCompare(right.symbol, "pt-BR")
-  )
-
-  return [...next, ...remaining]
-}
-
-function areItemsEquivalent(previousItem: SpreadItem, nextItem: SpreadItem) {
-  return (
-    previousItem.symbol === nextItem.symbol &&
-    previousItem.spot_exchange === nextItem.spot_exchange &&
-    previousItem.futures_exchange === nextItem.futures_exchange &&
-    previousItem.entry_spread_pct === nextItem.entry_spread_pct &&
-    previousItem.exit_spread_pct === nextItem.exit_spread_pct &&
-    previousItem.entry_volume_usdt === nextItem.entry_volume_usdt &&
-    previousItem.exit_volume_usdt === nextItem.exit_volume_usdt &&
-    previousItem.spot_volume_24h_usdt === nextItem.spot_volume_24h_usdt &&
-    previousItem.future_volume_24h_usdt === nextItem.future_volume_24h_usdt &&
-    previousItem.best_spot_bid === nextItem.best_spot_bid &&
-    previousItem.best_spot_ask === nextItem.best_spot_ask &&
-    previousItem.best_future_bid === nextItem.best_future_bid &&
-    previousItem.best_future_ask === nextItem.best_future_ask &&
-    previousItem.funding_rate === nextItem.funding_rate
-  )
-}
-
-function matchesActiveFilters(
-  item: SpreadItem,
-  filters: FilterState,
-  minimumPositiveSpread: number
-) {
-  if (filters.coin && !item.symbol.toLowerCase().includes(filters.coin.toLowerCase())) {
-    return false
-  }
-
-  if (
-    filters.spot_exchange.length > 0 &&
-    !filters.spot_exchange.some((exchange) => item.spot_exchange.toLowerCase() === exchange.toLowerCase())
-  ) {
-    return false
-  }
-
-  if (
-    filters.futures_exchange.length > 0 &&
-    !filters.futures_exchange.some((exchange) => item.futures_exchange.toLowerCase() === exchange.toLowerCase())
-  ) {
-    return false
-  }
-
-  if (item.entry_spread_pct < minimumPositiveSpread) {
-    return false
-  }
-
-  return true
 }

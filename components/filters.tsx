@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { usePreferences } from "@/components/preferences-provider"
 import {
   Sheet,
   SheetContent,
@@ -25,8 +26,14 @@ interface FiltersProps {
 
 const SPOT_EXCHANGES = ["binance", "bingx", "bybit", "gate", "kucoin", "mexc", "okx", "htx"]
 const FUTURES_EXCHANGES = ["binance", "bitget", "bybit", "okx", "gate", "mexc"]
+const MIN_ENTRY_SPREAD_PCT = 0.1
+
+function clampMinEntrySpread(value: number): number {
+  return Math.max(value, MIN_ENTRY_SPREAD_PCT)
+}
 
 export function Filters({ filters, onFiltersChange, pairType = "spot_future" }: FiltersProps) {
+  const { t } = usePreferences()
   const [draft, setDraft] = useState<FilterState>(filters)
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -36,6 +43,10 @@ export function Filters({ filters, onFiltersChange, pairType = "spot_future" }: 
 
   const updateDraft = <K extends keyof FilterState>(key: K, value: FilterState[K]) => {
     setDraft((previous) => ({ ...previous, [key]: value }))
+  }
+
+  const updateMinEntrySpread = (value: string) => {
+    updateDraft("min_entry_spread_pct", clampMinEntrySpread(parseFloat(value) || MIN_ENTRY_SPREAD_PCT))
   }
 
   const toggleExchange = (key: "spot_exchange" | "futures_exchange", value: string) => {
@@ -53,7 +64,7 @@ export function Filters({ filters, onFiltersChange, pairType = "spot_future" }: 
       spot_exchange: [],
       futures_exchange: [],
       coin: "",
-      min_entry_spread_pct: 0,
+      min_entry_spread_pct: MIN_ENTRY_SPREAD_PCT,
       refresh_interval_seconds: 5,
     })
   }
@@ -63,7 +74,11 @@ export function Filters({ filters, onFiltersChange, pairType = "spot_future" }: 
   }
 
   const applyFilters = () => {
-    onFiltersChange(draft)
+    onFiltersChange({
+      ...draft,
+      min_entry_spread_pct: clampMinEntrySpread(draft.min_entry_spread_pct),
+      refresh_interval_seconds: 5,
+    })
     setMobileOpen(false)
   }
 
@@ -71,18 +86,17 @@ export function Filters({ filters, onFiltersChange, pairType = "spot_future" }: 
     filters.spot_exchange.length > 0 ||
     filters.futures_exchange.length > 0 ||
     Boolean(filters.coin) ||
-    filters.min_entry_spread_pct > 0 ||
-    filters.refresh_interval_seconds !== 5
+    filters.min_entry_spread_pct !== MIN_ENTRY_SPREAD_PCT
 
   const hasDraftChanges = useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(filters),
     [draft, filters]
   )
   const isSpotSpot = pairType === "spot_spot"
-  const desktopSpotLabel = isSpotSpot ? "Spot compra" : "Spot"
-  const desktopFuturesLabel = isSpotSpot ? "Spot venda" : "Futuros"
-  const mobileSpotLabel = isSpotSpot ? "Exchange Spot compra" : "Exchange Spot"
-  const mobileFuturesLabel = isSpotSpot ? "Exchange Spot venda" : "Exchange Futuros"
+  const desktopSpotLabel = isSpotSpot ? t("spotBuy") : t("spot")
+  const desktopFuturesLabel = isSpotSpot ? t("spotSell") : t("futures")
+  const mobileSpotLabel = isSpotSpot ? t("spotBuyExchange") : t("spotExchange")
+  const mobileFuturesLabel = isSpotSpot ? t("spotSellExchange") : t("futuresExchange")
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
@@ -91,7 +105,7 @@ export function Filters({ filters, onFiltersChange, pairType = "spot_future" }: 
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Buscar moeda (ex: BTC, ETH)"
+              placeholder={t("searchCoin")}
               value={draft.coin}
               onChange={(e) => updateDraft("coin", e.target.value.toUpperCase())}
               className="border-border bg-secondary pl-10"
@@ -102,7 +116,7 @@ export function Filters({ filters, onFiltersChange, pairType = "spot_future" }: 
         <div className="hidden items-center gap-4 lg:flex">
           <ExchangeMultiSelect
             label={desktopSpotLabel}
-            placeholder="Todas"
+            placeholder={t("all")}
             options={SPOT_EXCHANGES}
             selected={draft.spot_exchange}
             onToggle={(value) => toggleExchange("spot_exchange", value)}
@@ -111,7 +125,7 @@ export function Filters({ filters, onFiltersChange, pairType = "spot_future" }: 
 
           <ExchangeMultiSelect
             label={desktopFuturesLabel}
-            placeholder="Todas"
+            placeholder={t("all")}
             options={FUTURES_EXCHANGES}
             selected={draft.futures_exchange}
             onToggle={(value) => toggleExchange("futures_exchange", value)}
@@ -119,34 +133,20 @@ export function Filters({ filters, onFiltersChange, pairType = "spot_future" }: 
           />
 
           <div className="flex items-center gap-2">
-            <Label className="whitespace-nowrap text-sm text-muted-foreground">Spread Min:</Label>
+            <Label className="whitespace-nowrap text-sm text-muted-foreground">{t("minSpread")}:</Label>
             <Input
               type="number"
               step="0.1"
-              min="0"
-              value={draft.min_entry_spread_pct || ""}
-              onChange={(e) => updateDraft("min_entry_spread_pct", parseFloat(e.target.value) || 0)}
+              min={MIN_ENTRY_SPREAD_PCT}
+              value={draft.min_entry_spread_pct}
+              onChange={(e) => updateMinEntrySpread(e.target.value)}
               className="w-[88px] border-border bg-secondary"
-              placeholder="0%"
+              placeholder="0.1%"
             />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Label className="whitespace-nowrap text-sm text-muted-foreground">Atualizacao:</Label>
-            <Input
-              type="number"
-              step="1"
-              min="1"
-              value={draft.refresh_interval_seconds || ""}
-              onChange={(e) => updateDraft("refresh_interval_seconds", Math.max(1, parseInt(e.target.value, 10) || 5))}
-              className="w-[92px] border-border bg-secondary"
-              placeholder="5"
-            />
-            <span className="text-sm text-muted-foreground">s</span>
           </div>
 
           <Button onClick={applyFilters} disabled={!hasDraftChanges}>
-            Aplicar
+            {t("apply")}
           </Button>
 
           {hasAppliedFilters ? (
@@ -159,14 +159,14 @@ export function Filters({ filters, onFiltersChange, pairType = "spot_future" }: 
                     spot_exchange: [],
                     futures_exchange: [],
                     coin: "",
-                    min_entry_spread_pct: 0,
+                    min_entry_spread_pct: MIN_ENTRY_SPREAD_PCT,
                     refresh_interval_seconds: 5,
                   })
                 }}
                 className="text-muted-foreground hover:text-foreground"
             >
               <X className="mr-1 h-4 w-4" />
-              Limpar
+              {t("clear")}
             </Button>
           ) : null}
         </div>
@@ -176,17 +176,17 @@ export function Filters({ filters, onFiltersChange, pairType = "spot_future" }: 
             <SheetTrigger asChild>
               <Button variant="outline" className="w-full">
                 <SlidersHorizontal className="mr-2 h-4 w-4" />
-                Filtros
+                {t("filters")}
                 {hasAppliedFilters ? (
                   <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
-                    Ativos
+                    {t("active")}
                   </span>
                 ) : null}
               </Button>
             </SheetTrigger>
             <SheetContent side="bottom" className="h-[80vh]">
               <SheetHeader>
-                <SheetTitle>Filtros</SheetTitle>
+                <SheetTitle>{t("filters")}</SheetTitle>
               </SheetHeader>
               <div className="mt-6 flex flex-col gap-6">
                 <ExchangeChecklist
@@ -206,37 +206,24 @@ export function Filters({ filters, onFiltersChange, pairType = "spot_future" }: 
                 />
 
                 <div>
-                  <Label className="mb-2 block text-sm text-muted-foreground">Spread Minimo (%)</Label>
+                  <Label className="mb-2 block text-sm text-muted-foreground">{t("minSpreadFull")}</Label>
                   <Input
                     type="number"
                     step="0.1"
-                    min="0"
-                    value={draft.min_entry_spread_pct || ""}
-                    onChange={(e) => updateDraft("min_entry_spread_pct", parseFloat(e.target.value) || 0)}
+                    min={MIN_ENTRY_SPREAD_PCT}
+                    value={draft.min_entry_spread_pct}
+                    onChange={(e) => updateMinEntrySpread(e.target.value)}
                     className="border-border bg-secondary"
-                    placeholder="0%"
-                  />
-                </div>
-
-                <div>
-                  <Label className="mb-2 block text-sm text-muted-foreground">Atualizacao (segundos)</Label>
-                  <Input
-                    type="number"
-                    step="1"
-                    min="1"
-                    value={draft.refresh_interval_seconds || ""}
-                    onChange={(e) => updateDraft("refresh_interval_seconds", Math.max(1, parseInt(e.target.value, 10) || 5))}
-                    className="border-border bg-secondary"
-                    placeholder="5"
+                    placeholder="0.1%"
                   />
                 </div>
 
                 <div className="mt-auto flex gap-3">
                   <Button variant="outline" className="flex-1" onClick={resetDraft}>
-                    Limpar rascunho
+                    {t("clearDraft")}
                   </Button>
                   <Button className="flex-1" onClick={applyFilters} disabled={!hasDraftChanges}>
-                    Aplicar
+                    {t("apply")}
                   </Button>
                 </div>
               </div>
@@ -263,6 +250,8 @@ function ExchangeMultiSelect({
   onToggle: (value: string) => void
   onSelectAll: () => void
 }) {
+  const { t } = usePreferences()
+
   return (
     <div className="flex items-center gap-2">
       <Label className="whitespace-nowrap text-sm text-muted-foreground">{label}:</Label>
@@ -270,7 +259,7 @@ function ExchangeMultiSelect({
         <PopoverTrigger asChild>
           <Button variant="outline" className="min-w-[180px] justify-between border-border bg-secondary font-normal">
             <span className="truncate">
-              {selected.length === 0 ? placeholder : `${selected.length} selecionada(s)`}
+              {selected.length === 0 ? placeholder : `${selected.length} ${t("selected")}`}
             </span>
             <ChevronDown className="ml-2 h-4 w-4 opacity-60" />
           </Button>
@@ -293,7 +282,7 @@ function ExchangeMultiSelect({
               className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-secondary"
             >
               <Checkbox checked={selected.length === 0} />
-              <span className="flex-1 text-left font-medium">Todas</span>
+              <span className="flex-1 text-left font-medium">{t("all")}</span>
               {selected.length === 0 ? <Check className="h-4 w-4 text-primary" /> : null}
             </div>
             {options.map((exchange) => {
@@ -338,6 +327,8 @@ function ExchangeChecklist({
   onToggle: (value: string) => void
   onSelectAll: () => void
 }) {
+  const { t } = usePreferences()
+
   return (
     <div>
       <Label className="mb-2 block text-sm text-muted-foreground">{label}</Label>
@@ -358,7 +349,7 @@ function ExchangeChecklist({
           )}
         >
           <Checkbox checked={selected.length === 0} />
-          <span className="font-medium">Todas</span>
+          <span className="font-medium">{t("all")}</span>
         </div>
         {options.map((exchange) => {
           const checked = selected.includes(exchange)

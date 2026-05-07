@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import { CandlestickChartCustom } from "@/components/candlestick-chart"
 import { Header } from "@/components/header"
+import { usePreferences } from "@/components/preferences-provider"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -29,6 +30,7 @@ import {
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useExchangePairBooks } from "@/hooks/use-exchange-pair-books"
+import type { ExchangeMarketType } from "@/hooks/use-exchange-pair-books"
 import { fetchCandles, fetchLatest, fetchNetworks } from "@/lib/api"
 import type { AssetNetworksResponse, CandleData, SpreadItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -115,14 +117,139 @@ const EXCHANGE_FEES: Record<string, ExchangeFeeProfile> = {
   },
 }
 
+const pairCopy = {
+  pt: {
+    networkLoadError: "Falha ao carregar dados de redes",
+    noCandles: "Nenhum candle encontrado para este par no periodo selecionado",
+    candleLoadError: "Falha ao carregar candles",
+    updatingPeriod: "Atualizando periodo...",
+    candlesLoaded: "candles carregados",
+    missingPair: "Par nao informado",
+    openFromMain: "Abra esta pagina a partir da lista principal.",
+    back: "Voltar",
+    backToOpportunities: "Voltar para oportunidades",
+    dedicatedMonitor: "Monitor dedicado",
+    updatingRealtimeBook: "Atualizando book em tempo real...",
+    realtimeBookConnected: "Book em tempo real conectado",
+    currentProfit: "Lucro Atual",
+    snapshotUnavailable: "Snapshot nao disponivel para este par.",
+    realtimeBook: "Book em tempo real",
+    realtimeBooks: "Books em tempo real",
+    waitingBothLegs: "Atualizando book em tempo real, aguardando as duas pernadas conectarem.",
+    bestAsk: "Melhor ask",
+    bestBid: "Melhor bid",
+    bestVolume: "Melhor Vol.",
+    networkAnalysis: "Analise de Redes",
+    updatePending: "Atualizacao pendente",
+    fees: "Taxas",
+    feeReference: "Referencia: Abril de 2024, contas padrao / nivel 0.",
+    statisticalReading: "Leitura Estatistica",
+    entryMean: "Media entrada",
+    exitMean: "Media saida",
+    entryVolatility: "Volatilidade entrada",
+    exitVolatility: "Volatilidade saida",
+    periodContext: "Contexto do Periodo",
+    realtimeTracking: "Acompanhamento em tempo real",
+    filteredSnapshot: "Snapshot filtrado exclusivamente para o par selecionado.",
+    updatingMetrics: "Atualizando metricas e graficos para o novo periodo selecionado.",
+    entryCandlestick: "Candlestick de Spread de Entrada",
+    exitCandlestick: "Candlestick de Spread de Saida",
+    entry: "Entrada",
+    exit: "Saida",
+    maxPeriod: "Maxima do periodo",
+    minPeriod: "Minima do periodo",
+    distanceMean: "Distancia da media",
+    currentVsPrevious: "Atual vs fechamento anterior",
+    futuresLabel: "Futuros",
+    viewExchangeFees: "Ver taxas no site da corretora",
+    viewLevels: "Ver niveis",
+    depthTitle: "Profundidade por corretora",
+    depthDescription: "Visualize os niveis de compra e venda recebidos em tempo real para cada corretora deste par.",
+    noLevels: "Sem niveis disponiveis.",
+    networksFound: "rede(s) encontrada(s)",
+    incompleteQuery: "Consulta sem dados completos",
+    failed: "Falha",
+    deposit: "Dep",
+    withdraw: "Saq",
+    depositFee: "Taxa deposito",
+    withdrawFee: "Taxa saque",
+    depositMin: "Min deposito",
+    withdrawMin: "Min saque",
+  },
+  en: {
+    networkLoadError: "Failed to load network data",
+    noCandles: "No candles found for this pair in the selected period",
+    candleLoadError: "Failed to load candles",
+    updatingPeriod: "Updating period...",
+    candlesLoaded: "candles loaded",
+    missingPair: "Pair not provided",
+    openFromMain: "Open this page from the main list.",
+    back: "Back",
+    backToOpportunities: "Back to opportunities",
+    dedicatedMonitor: "Dedicated monitor",
+    updatingRealtimeBook: "Updating real-time book...",
+    realtimeBookConnected: "Real-time book connected",
+    currentProfit: "Current Profit",
+    snapshotUnavailable: "Snapshot unavailable for this pair.",
+    realtimeBook: "Real-time book",
+    realtimeBooks: "Real-time books",
+    waitingBothLegs: "Updating real-time book, waiting for both legs to connect.",
+    bestAsk: "Best ask",
+    bestBid: "Best bid",
+    bestVolume: "Best Vol.",
+    networkAnalysis: "Network Analysis",
+    updatePending: "Update pending",
+    fees: "Fees",
+    feeReference: "Reference: April 2024, standard accounts / level 0.",
+    statisticalReading: "Statistical Reading",
+    entryMean: "Entry mean",
+    exitMean: "Exit mean",
+    entryVolatility: "Entry volatility",
+    exitVolatility: "Exit volatility",
+    periodContext: "Period Context",
+    realtimeTracking: "Real-time tracking",
+    filteredSnapshot: "Snapshot filtered exclusively for the selected pair.",
+    updatingMetrics: "Updating metrics and charts for the newly selected period.",
+    entryCandlestick: "Entry Spread Candlestick",
+    exitCandlestick: "Exit Spread Candlestick",
+    entry: "Entry",
+    exit: "Exit",
+    maxPeriod: "Period maximum",
+    minPeriod: "Period minimum",
+    distanceMean: "Distance from mean",
+    currentVsPrevious: "Current vs previous close",
+    futuresLabel: "Futures",
+    viewExchangeFees: "View fees on the exchange website",
+    viewLevels: "View levels",
+    depthTitle: "Depth by exchange",
+    depthDescription: "View real-time buy and sell levels received for each exchange in this pair.",
+    noLevels: "No levels available.",
+    networksFound: "network(s) found",
+    incompleteQuery: "Query returned incomplete data",
+    failed: "Failed",
+    deposit: "Dep",
+    withdraw: "Wdr",
+    depositFee: "Deposit fee",
+    withdrawFee: "Withdraw fee",
+    depositMin: "Min deposit",
+    withdrawMin: "Min withdraw",
+  },
+} as const
+
 export function PairMonitorPage() {
+  const { language, t } = usePreferences()
+  const copy = language === "pt" ? pairCopy.pt : pairCopy.en
   const searchParams = useSearchParams()
   const pairKey = searchParams.get("pair_key") ?? ""
-  const pairParts = useMemo(() => pairKey.split("|"), [pairKey])
-  const fallbackPairType = pairParts[0] === "spot_spot" ? "spot_spot" : "spot_future"
-  const fallbackCoin = pairParts[1] ?? ""
-  const fallbackSpotExchange = pairParts[2] ?? ""
-  const fallbackFuturesExchange = pairParts[3] ?? ""
+  const queryPairType = searchParams.get("pair_type")
+  const querySymbol = searchParams.get("symbol")
+  const querySpotExchange = searchParams.get("spot_exchange")
+  const queryFuturesExchange = searchParams.get("futures_exchange")
+  const parsedPairKey = useMemo(() => parsePairKey(pairKey), [pairKey])
+  const fallbackPairType = queryPairType === "spot_spot" || parsedPairKey.pairType === "spot_spot" ? "spot_spot" : "spot_future"
+  const fallbackCoin = querySymbol || parsedPairKey.symbol || ""
+  const fallbackSpotExchange = querySpotExchange || parsedPairKey.spotExchange || ""
+  const fallbackFuturesExchange = queryFuturesExchange || parsedPairKey.futuresExchange || ""
 
   const [timeRange, setTimeRange] = useState("240")
   const [latestItem, setLatestItem] = useState<SpreadItem | null>(null)
@@ -144,9 +271,10 @@ export function PairMonitorPage() {
   }, [pairKey, fallbackCoin, fallbackSpotExchange])
   const streamLegB = useMemo(() => {
     if (!pairKey || !fallbackCoin || !fallbackFuturesExchange) return null
+    const marketType: ExchangeMarketType = fallbackPairType === "spot_spot" ? "spot" : "future"
     return {
       exchangeId: fallbackFuturesExchange,
-      marketType: (fallbackPairType === "spot_spot" ? "spot" : "future") as const,
+      marketType,
       asset: fallbackCoin,
     }
   }, [pairKey, fallbackCoin, fallbackFuturesExchange, fallbackPairType])
@@ -194,6 +322,10 @@ export function PairMonitorPage() {
         setLatestItem({
           ...fallbackItem,
           ...snapshot,
+          pair_type: fallbackPairType,
+          symbol: fallbackCoin,
+          spot_exchange: fallbackSpotExchange,
+          futures_exchange: fallbackFuturesExchange,
         })
       } catch {
         if (isActive) {
@@ -224,13 +356,6 @@ export function PairMonitorPage() {
   useEffect(() => {
     if (!pairKey) return
 
-    if (isSpotSpot) {
-      setCandles([])
-      setLoadingCandles(false)
-      setError(null)
-      return
-    }
-
     let isActive = true
 
     const loadNetworks = async () => {
@@ -252,7 +377,7 @@ export function PairMonitorPage() {
       } catch {
         if (!isActive) return
         setNetworkData(null)
-        setNetworkError("Falha ao carregar dados de redes")
+        setNetworkError(copy.networkLoadError)
       } finally {
         if (isActive) {
           setLoadingNetworks(false)
@@ -269,6 +394,13 @@ export function PairMonitorPage() {
 
   useEffect(() => {
     if (!pairKey) return
+
+    if (isSpotSpot) {
+      setCandles([])
+      setLoadingCandles(false)
+      setError(null)
+      return
+    }
 
     let isActive = true
 
@@ -300,12 +432,12 @@ export function PairMonitorPage() {
 
         setCandles(data)
         if (data.length === 0) {
-          setError("Nenhum candle encontrado para este par no periodo selecionado")
+          setError(copy.noCandles)
         }
       } catch {
         if (!isActive) return
         setCandles([])
-        setError("Falha ao carregar candles")
+        setError(copy.candleLoadError)
       } finally {
         if (isActive) {
           setLoadingCandles(false)
@@ -322,7 +454,7 @@ export function PairMonitorPage() {
 
   const analytics = useMemo(() => buildAnalytics(candles), [candles])
   const periodContext = useMemo(() => buildPeriodContext(candles, latestItem), [candles, latestItem])
-  const periodStatusLabel = loadingCandles ? "Atualizando periodo..." : `${candles.length} candles carregados`
+  const periodStatusLabel = loadingCandles ? copy.updatingPeriod : `${candles.length} ${copy.candlesLoaded}`
   const networkMatches = useMemo(() => buildNetworkMatches(networkData), [networkData])
   const feeCards = useMemo(() => {
     if (!latestItem) return []
@@ -330,12 +462,12 @@ export function PairMonitorPage() {
       {
         exchangeId: latestItem.spot_exchange,
         marketType: "spot" as FeeMarketType,
-        sideLabel: isSpotSpot ? "Compra" : "Spot",
+        sideLabel: isSpotSpot ? t("buy") : t("spot"),
       },
       {
         exchangeId: latestItem.futures_exchange,
         marketType: (isSpotSpot ? "spot" : "future") as FeeMarketType,
-        sideLabel: isSpotSpot ? "Venda" : "Future",
+        sideLabel: isSpotSpot ? t("sell") : "Future",
       },
     ]
 
@@ -367,6 +499,7 @@ export function PairMonitorPage() {
     }
     return latestItem?.entry_volume_usdt
   }, [legBBook, latestItem?.entry_volume_usdt])
+  const isBookRealtimeLoading = !isConnected || !legABook || !legBBook
 
   if (!pairKey) {
     return (
@@ -374,10 +507,10 @@ export function PairMonitorPage() {
         <Header isConnected={false} lastUpdate={null} />
         <main className="container mx-auto px-4 py-8">
           <div className="rounded-xl border border-border bg-card p-8 text-center">
-            <p className="mb-2 text-lg font-medium text-foreground">Par nao informado</p>
-            <p className="mb-4 text-muted-foreground">Abra esta pagina a partir da lista principal.</p>
+            <p className="mb-2 text-lg font-medium text-foreground">{copy.missingPair}</p>
+            <p className="mb-4 text-muted-foreground">{copy.openFromMain}</p>
             <Button asChild>
-              <Link href="/">Voltar</Link>
+              <Link href="/monitor">{copy.back}</Link>
             </Button>
           </div>
         </main>
@@ -395,15 +528,15 @@ export function PairMonitorPage() {
             <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div className="space-y-4">
                 <Button asChild variant="ghost" className="px-0 hover:bg-transparent">
-                  <Link href="/">
+                  <Link href="/monitor">
                     <ArrowLeft className="mr-2 h-4 w-4" />
-                    Voltar para oportunidades
+                    {copy.backToOpportunities}
                   </Link>
                 </Button>
 
                 <div>
                   <div className="text-sm uppercase tracking-[0.18em] text-muted-foreground">
-                    Monitor dedicado
+                    {copy.dedicatedMonitor}
                   </div>
                   <h1 className="mt-2 text-3xl font-bold text-foreground">
                     {latestItem?.symbol ?? fallbackCoin ?? pairKey}
@@ -423,13 +556,16 @@ export function PairMonitorPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center" />
             </div>
             <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
-              <span
-                className={cn(
-                  "h-2 w-2 rounded-full",
-                  isConnected ? "bg-primary" : "bg-amber-500"
-                )}
-              />
-              <span>{isConnected ? "Tempo real conectado" : "Reconectando em tempo real"}</span>
+              {isBookRealtimeLoading ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-amber-500" />
+              ) : (
+                <span className="h-2 w-2 rounded-full bg-primary" />
+              )}
+              <span>
+                {isBookRealtimeLoading
+                  ? copy.updatingRealtimeBook
+                  : copy.realtimeBookConnected}
+              </span>
             </div>
           </section>
 
@@ -439,13 +575,13 @@ export function PairMonitorPage() {
                 <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
                   <InfoCard
                     icon={TrendingUp}
-                    label="Lucro Atual"
+                    label={copy.currentProfit}
                     value={`${latestItem.entry_spread_pct.toFixed(2)}%`}
                     tone={latestItem.entry_spread_pct >= 0 ? "positive" : "negative"}
                   />
                   <InfoCard
                     icon={DollarSign}
-                    label="Volume 24hr"
+                    label={t("volume24h")}
                     value={
                       <div className="space-y-1 text-base font-semibold">
                         <div className="flex items-center justify-between gap-3">
@@ -461,12 +597,12 @@ export function PairMonitorPage() {
                   />
                   <InfoCard
                     icon={Activity}
-                    label="Spot Compra"
+                    label={t("spotBuy")}
                     value={latestItem.spot_exchange}
                   />
                   <InfoCard
                     icon={ArrowLeft}
-                    label="Spot Venda"
+                    label={t("spotSell")}
                     value={latestItem.futures_exchange}
                   />
                 </section>
@@ -474,19 +610,19 @@ export function PairMonitorPage() {
                 <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
                   <InfoCard
                     icon={TrendingUp}
-                    label="Spread Entrada"
+                    label={t("entrySpread")}
                     value={`${latestItem.entry_spread_pct.toFixed(2)}%`}
                     tone={latestItem.entry_spread_pct >= 0 ? "positive" : "negative"}
                   />
                   <InfoCard
                     icon={TrendingDown}
-                    label="Spread Saida"
+                    label={t("exitSpread")}
                     value={`${latestItem.exit_spread_pct.toFixed(2)}%`}
                     tone={latestItem.exit_spread_pct >= 0 ? "positive" : "negative"}
                   />
                   <InfoCard
                     icon={DollarSign}
-                    label="Volume 24h"
+                    label={t("volume24h")}
                     value={
                       <div className="space-y-1 text-base font-semibold">
                         <div className="flex items-center justify-between gap-3">
@@ -516,26 +652,36 @@ export function PairMonitorPage() {
             </>
           ) : (
             <section className="rounded-2xl border border-border bg-card p-5 text-sm text-muted-foreground">
-              Snapshot nao disponivel para este par.
+              {copy.snapshotUnavailable}
             </section>
           )}
 
           {latestItem ? (
             <section className="rounded-2xl border border-border bg-card p-5">
               <div className="mb-5 flex items-center gap-2">
-                <Activity className="h-4 w-4 text-primary" />
+                {isBookRealtimeLoading ? (
+                  <RefreshCw className="h-4 w-4 animate-spin text-amber-500" />
+                ) : (
+                  <Activity className="h-4 w-4 text-primary" />
+                )}
                 <h2 className="text-lg font-semibold text-foreground">
-                  {isSpotSpot ? "Book em tempo real" : "Books em tempo real"}
+                  {isSpotSpot ? copy.realtimeBook : copy.realtimeBooks}
                 </h2>
               </div>
+              {isBookRealtimeLoading ? (
+                <div className="mb-4 flex items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                  <RefreshCw className="h-4 w-4 animate-spin shrink-0" />
+                  <span>{copy.waitingBothLegs}</span>
+                </div>
+              ) : null}
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <BookSideCard
-                  title={isSpotSpot ? `Compra em ${latestItem.spot_exchange}` : `Compra em ${latestItem.spot_exchange}`}
-                  primaryLabel="Melhor ask"
+                  title={`${t("buy")} em ${latestItem.spot_exchange}`}
+                  primaryLabel={copy.bestAsk}
                   primaryValue={formatPrice(latestItem.best_spot_ask)}
-                  secondaryLabel="Melhor bid"
+                  secondaryLabel={copy.bestBid}
                   secondaryValue={formatPrice(latestItem.best_spot_bid)}
-                  volumeLabel="Melhor Vol."
+                  volumeLabel={copy.bestVolume}
                   volumeValue={
                     isSpotSpot
                       ? formatCompactCurrency(spotMarketTopValue)
@@ -543,12 +689,12 @@ export function PairMonitorPage() {
                   }
                 />
                 <BookSideCard
-                  title={isSpotSpot ? `Venda em ${latestItem.futures_exchange}` : `Venda em ${latestItem.futures_exchange}`}
-                  primaryLabel="Melhor ask"
+                  title={`${t("sell")} em ${latestItem.futures_exchange}`}
+                  primaryLabel={copy.bestAsk}
                   primaryValue={formatPrice(latestItem.best_future_ask)}
-                  secondaryLabel="Melhor bid"
+                  secondaryLabel={copy.bestBid}
                   secondaryValue={formatPrice(latestItem.best_future_bid)}
-                  volumeLabel="Melhor Vol."
+                  volumeLabel={copy.bestVolume}
                   volumeValue={
                     isSpotSpot
                       ? formatCompactCurrency(futureMarketTopValue)
@@ -558,10 +704,10 @@ export function PairMonitorPage() {
               </div>
               <div className="mt-4">
                 <DepthLevelsDialog
-                  buyTitle={isSpotSpot ? `Compra em ${latestItem.spot_exchange}` : `Spot em ${latestItem.spot_exchange}`}
+                  buyTitle={isSpotSpot ? `${t("buy")} em ${latestItem.spot_exchange}` : `${t("spot")} em ${latestItem.spot_exchange}`}
                   buyBids={legABook?.bids ?? []}
                   buyAsks={legABook?.asks ?? []}
-                  sellTitle={isSpotSpot ? `Venda em ${latestItem.futures_exchange}` : `Future em ${latestItem.futures_exchange}`}
+                  sellTitle={isSpotSpot ? `${t("sell")} em ${latestItem.futures_exchange}` : `Future em ${latestItem.futures_exchange}`}
                   sellBids={legBBook?.bids ?? []}
                   sellAsks={legBBook?.asks ?? []}
                 />
@@ -574,10 +720,10 @@ export function PairMonitorPage() {
               <div className="flex items-center gap-2">
                 <Network className="h-4 w-4 text-primary" />
                 <div>
-                  <h2 className="text-lg font-semibold text-foreground">Analise de Redes</h2>
+                  <h2 className="text-lg font-semibold text-foreground">{copy.networkAnalysis}</h2>
 
                   <p className="text-xs text-muted-foreground">
-                    {networkData?.updated_at ? `Ultima atualizacao: ${formatDateTime(networkData.updated_at)}` : "Atualizacao pendente"}
+                    {networkData?.updated_at ? `${t("lastUpdate")}: ${formatDateTime(networkData.updated_at)}` : copy.updatePending}
                   </p>
                 </div>
               </div>
@@ -604,7 +750,7 @@ export function PairMonitorPage() {
 
             {!networkError && !loadingNetworks && (!networkData || !networkData.updated_at || networkData.exchanges.length === 0) ? (
               <div className="rounded-xl border border-border/60 bg-secondary/20 p-4 text-sm text-muted-foreground">
-                Atualizacao pendente.
+                {copy.updatePending}.
               </div>
             ) : null}
           </section>
@@ -614,9 +760,9 @@ export function PairMonitorPage() {
               <div className="mb-5 flex items-center gap-2">
                 <Percent className="h-4 w-4 text-primary" />
                 <div>
-                  <h2 className="text-lg font-semibold text-foreground">Taxas</h2>
+                  <h2 className="text-lg font-semibold text-foreground">{copy.fees}</h2>
                   <p className="text-xs text-muted-foreground">
-                    Referência: Abril de 2024, contas padrão / nível 0.
+                    {copy.feeReference}
                   </p>
                 </div>
               </div>
@@ -642,16 +788,16 @@ export function PairMonitorPage() {
             <section className={cn("grid grid-cols-1 gap-4 xl:grid-cols-2 transition-opacity", loadingCandles && "opacity-70")}>
               <AnalysisCard
                 icon={LineChart}
-                title="Leitura Estatistica"
+                title={copy.statisticalReading}
                 isUpdating={loadingCandles}
                 rows={[
-                  ["Media entrada", `${analytics.entryMean.toFixed(3)}%`],
-                  ["Media saida", `${analytics.exitMean.toFixed(3)}%`],
-                  ["Volatilidade entrada", `${analytics.entryVolatility.toFixed(3)}%`],
-                  ["Volatilidade saida", `${analytics.exitVolatility.toFixed(3)}%`],
+                  [copy.entryMean, `${analytics.entryMean.toFixed(3)}%`],
+                  [copy.exitMean, `${analytics.exitMean.toFixed(3)}%`],
+                  [copy.entryVolatility, `${analytics.entryVolatility.toFixed(3)}%`],
+                  [copy.exitVolatility, `${analytics.exitVolatility.toFixed(3)}%`],
                 ]}
               />
-              <PeriodContextCard title="Contexto do Periodo" context={periodContext} isUpdating={loadingCandles} />
+              <PeriodContextCard title={copy.periodContext} context={periodContext} isUpdating={loadingCandles} />
             </section>
           ) : null}
 
@@ -659,9 +805,9 @@ export function PairMonitorPage() {
           <section className={cn("rounded-2xl border border-border bg-card p-5 transition-opacity", loadingCandles && "opacity-80")}>
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-semibold text-foreground">Acompanhamento em tempo real</h2>
+                <h2 className="text-xl font-semibold text-foreground">{copy.realtimeTracking}</h2>
                 <p className="text-sm text-muted-foreground">
-                  Snapshot filtrado exclusivamente para o par selecionado.
+                  {copy.filteredSnapshot}
                 </p>
               </div>
               <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
@@ -689,7 +835,7 @@ export function PairMonitorPage() {
 
             {loadingCandles ? (
               <div className="mb-4 rounded-xl border border-border/60 bg-secondary/20 px-4 py-3 text-sm text-muted-foreground">
-                Atualizando metricas e graficos para o novo periodo selecionado.
+                {copy.updatingMetrics}
               </div>
             ) : null}
 
@@ -704,13 +850,13 @@ export function PairMonitorPage() {
                 data={candles}
                 isUpdating={loadingCandles}
                 type="entry"
-                title="Candlestick de Spread de Entrada"
+                title={copy.entryCandlestick}
               />
               <CandlestickChartCustom
                 data={candles}
                 isUpdating={loadingCandles}
                 type="exit"
-                title="Candlestick de Spread de Saida"
+                title={copy.exitCandlestick}
               />
             </div>
           </section>
@@ -741,50 +887,20 @@ function patchSpreadItemWithRealtimeBooks(
   if ((current.pair_type ?? "spot_future") === "spot_spot") {
     const aToBAbs = legBBook.bestBidPrice - legABook.bestAskPrice
     const aToBPct = legABook.bestAskPrice > 0 ? (aToBAbs / legABook.bestAskPrice) * 100 : 0
-    const bToAAbs = legABook.bestBidPrice - legBBook.bestAskPrice
-    const bToAPct = legBBook.bestAskPrice > 0 ? (bToAAbs / legBBook.bestAskPrice) * 100 : 0
-
-    if (aToBPct >= bToAPct) {
-      return {
-        ...current,
-        spot_exchange: current.pair_key.split("|")[2] ?? current.spot_exchange,
-        futures_exchange: current.pair_key.split("|")[3] ?? current.futures_exchange,
-        best_spot_bid: legABook.bestBidPrice,
-        best_spot_ask: legABook.bestAskPrice,
-        best_future_bid: legBBook.bestBidPrice,
-        best_future_ask: legBBook.bestAskPrice,
-        entry_spread_pct: aToBPct,
-        exit_spread_pct: 0,
-        entry_volume_usdt: Math.min(
-          legABook.bestAskAmount * legABook.bestAskPrice,
-          legBBook.bestBidAmount * legBBook.bestBidPrice
-        ),
-        exit_volume_usdt: Math.min(
-          legABook.bestAskAmount * legABook.bestAskPrice,
-          legBBook.bestBidAmount * legBBook.bestBidPrice
-        ),
-        updated_at: new Date(Math.max(legABook.timestamp, legBBook.timestamp)).toISOString(),
-      }
-    }
-
+    const executableVolume = Math.min(
+      legABook.bestAskAmount * legABook.bestAskPrice,
+      legBBook.bestBidAmount * legBBook.bestBidPrice
+    )
     return {
       ...current,
-      spot_exchange: current.pair_key.split("|")[3] ?? current.spot_exchange,
-      futures_exchange: current.pair_key.split("|")[2] ?? current.futures_exchange,
-      best_spot_bid: legBBook.bestBidPrice,
-      best_spot_ask: legBBook.bestAskPrice,
-      best_future_bid: legABook.bestBidPrice,
-      best_future_ask: legABook.bestAskPrice,
-      entry_spread_pct: bToAPct,
+      best_spot_bid: legABook.bestBidPrice,
+      best_spot_ask: legABook.bestAskPrice,
+      best_future_bid: legBBook.bestBidPrice,
+      best_future_ask: legBBook.bestAskPrice,
+      entry_spread_pct: aToBPct,
       exit_spread_pct: 0,
-      entry_volume_usdt: Math.min(
-        legBBook.bestAskAmount * legBBook.bestAskPrice,
-        legABook.bestBidAmount * legABook.bestBidPrice
-      ),
-      exit_volume_usdt: Math.min(
-        legBBook.bestAskAmount * legBBook.bestAskPrice,
-        legABook.bestBidAmount * legABook.bestBidPrice
-      ),
+      entry_volume_usdt: executableVolume,
+      exit_volume_usdt: executableVolume,
       updated_at: toSafeIsoString(Math.max(legABook.timestamp, legBBook.timestamp)),
     }
   }
@@ -1017,6 +1133,8 @@ function PeriodContextCard({
   }
   isUpdating?: boolean
 }) {
+  const { language } = usePreferences()
+
   return (
     <div className="rounded-2xl border border-border bg-card p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -1028,20 +1146,22 @@ function PeriodContextCard({
       </div>
 
       <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
-        <ContextColumn label="Entrada" metrics={context.entry} />
-        <ContextColumn label="Saida" metrics={context.exit} />
+        <ContextColumn label={(language === "pt" ? pairCopy.pt : pairCopy.en).entry} metrics={context.entry} />
+        <ContextColumn label={(language === "pt" ? pairCopy.pt : pairCopy.en).exit} metrics={context.exit} />
       </div>
     </div>
   )
 }
 
 function UpdateBadge({ isUpdating }: { isUpdating: boolean }) {
+  const { t } = usePreferences()
+
   return (
     <div className="flex min-w-[132px] items-center justify-end">
       {isUpdating ? (
         <span className="inline-flex items-center gap-2 rounded-full bg-secondary/70 px-2.5 py-1 text-[11px] text-muted-foreground">
           <RefreshCw className="h-3 w-3 animate-spin" />
-          Atualizando
+          {t("updating")}
         </span>
       ) : null}
     </div>
@@ -1055,19 +1175,22 @@ function ContextColumn({
   label: string
   metrics: ReturnType<typeof emptyPeriodMetrics>
 }) {
+  const { language } = usePreferences()
+  const copy = language === "pt" ? pairCopy.pt : pairCopy.en
+
   return (
     <div className="rounded-xl bg-secondary/25 p-4">
       <div className="mb-3 text-sm font-semibold text-foreground">{label}</div>
       <div className="space-y-2">
-        <ContextRow label="Maxima do periodo" value={formatPercentValue(metrics.max)} />
-        <ContextRow label="Minima do periodo" value={formatPercentValue(metrics.min)} />
+        <ContextRow label={copy.maxPeriod} value={formatPercentValue(metrics.max)} />
+        <ContextRow label={copy.minPeriod} value={formatPercentValue(metrics.min)} />
         <ContextRow
-          label="Distancia da media"
+          label={copy.distanceMean}
           value={formatSignedPercent(metrics.distanceFromMean)}
           tone={metrics.distanceFromMean >= 0 ? "positive" : "negative"}
         />
         <ContextRow
-          label="Atual vs fechamento anterior"
+          label={copy.currentVsPrevious}
           value={formatSignedPercent(metrics.vsPreviousClose)}
           tone={metrics.vsPreviousClose >= 0 ? "positive" : "negative"}
         />
@@ -1127,6 +1250,9 @@ function BookSideCard({
   volumeLabel: string
   volumeValue: string
 }) {
+  const { language } = usePreferences()
+  const copy = language === "pt" ? pairCopy.pt : pairCopy.en
+
   return (
     <div className="rounded-xl bg-secondary/25 p-4">
       <div className="mb-3 text-sm font-semibold text-foreground">{title}</div>
@@ -1156,6 +1282,9 @@ function FeeCard({
   notes: string
   url: string
 }) {
+  const { language } = usePreferences()
+  const copy = language === "pt" ? pairCopy.pt : pairCopy.en
+
   return (
     <div className="rounded-xl border border-border/70 bg-secondary/20 p-4">
       <div className="flex items-center justify-between gap-3">
@@ -1164,7 +1293,7 @@ function FeeCard({
           <h3 className="mt-1 text-lg font-semibold text-foreground">{exchangeId.toUpperCase()}</h3>
         </div>
         <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium uppercase text-muted-foreground">
-          {marketType === "spot" ? "Spot" : "Futuros"}
+          {marketType === "spot" ? "Spot" : copy.futuresLabel}
         </span>
       </div>
 
@@ -1186,7 +1315,7 @@ function FeeCard({
         rel="noreferrer"
         className="mt-3 inline-flex text-sm font-medium text-primary transition-colors hover:text-primary/80"
       >
-        Ver taxas no site da corretora
+        {copy.viewExchangeFees}
       </a>
     </div>
   )
@@ -1207,19 +1336,22 @@ function DepthLevelsDialog({
   buyBids: { price: number; amount: number }[]
   buyAsks: { price: number; amount: number }[]
 }) {
+  const { language } = usePreferences()
+  const copy = language === "pt" ? pairCopy.pt : pairCopy.en
+
   return (
     <Dialog>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="h-8 text-xs">
           <Layers3 className="mr-2 h-4 w-4" />
-          Ver niveis
+          {copy.viewLevels}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[88vh] w-[99.5vw] max-w-none overflow-y-auto p-3 sm:p-4 lg:w-[99vw]">
         <DialogHeader>
-          <DialogTitle className="text-base sm:text-lg">Profundidade por corretora</DialogTitle>
+          <DialogTitle className="text-base sm:text-lg">{copy.depthTitle}</DialogTitle>
           <DialogDescription>
-            Visualize os niveis de compra e venda recebidos em tempo real para cada corretora deste par.
+            {copy.depthDescription}
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -1263,6 +1395,9 @@ function DepthLevelsCard({
   asks: { price: number; amount: number }[]
   bids: { price: number; amount: number }[]
 }) {
+  const { language } = usePreferences()
+  const copy = language === "pt" ? pairCopy.pt : pairCopy.en
+
   const askLevels = asks.slice(0, 5).reverse()
   const bidLevels = bids.slice(0, 5)
 
@@ -1270,7 +1405,7 @@ function DepthLevelsCard({
     <div className="rounded-xl border border-border bg-secondary/15 p-3">
       <div className="space-y-1">
         {askLevels.length === 0 && bidLevels.length === 0 ? (
-          <div className="text-xs text-muted-foreground sm:text-sm">Sem niveis disponiveis.</div>
+          <div className="text-xs text-muted-foreground sm:text-sm">{copy.noLevels}</div>
         ) : null}
 
         {askLevels.map((level) => (
@@ -1336,13 +1471,16 @@ function ExchangeNetworkCard({
   exchange: AssetNetworksResponse["exchanges"][number]
   matches: Record<string, NetworkMatch>
 }) {
+  const { language } = usePreferences()
+  const copy = language === "pt" ? pairCopy.pt : pairCopy.en
+
   return (
     <div className="rounded-2xl border border-border/80 bg-secondary/15 p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold uppercase text-foreground">{exchange.exchange_id}</h3>
           <p className="text-xs text-muted-foreground">
-            {exchange.success ? `${exchange.networks.length} rede(s) encontrada(s)` : "Consulta sem dados completos"}
+            {exchange.success ? `${exchange.networks.length} ${copy.networksFound}` : copy.incompleteQuery}
           </p>
         </div>
         <span
@@ -1351,7 +1489,7 @@ function ExchangeNetworkCard({
             exchange.success ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"
           )}
         >
-          {exchange.success ? "OK" : "Falha"}
+          {exchange.success ? "OK" : copy.failed}
         </span>
       </div>
 
@@ -1369,29 +1507,17 @@ function ExchangeNetworkCard({
                 <div>
                   <div className="font-semibold text-foreground">{network.network_name}</div>
                   <div className="text-xs text-muted-foreground">{network.network_key}</div>
-                  {matches[network.network_key] ? (
-                    <div
-                      className={cn(
-                        "mt-1 text-xs",
-                        matches[network.network_key].confidence === "high" && "text-primary",
-                        matches[network.network_key].confidence === "medium" && "text-amber-600",
-                        matches[network.network_key].confidence === "low" && "text-muted-foreground"
-                      )}
-                    >
-                      Equivale a {matches[network.network_key].targetNetworkName} na {matches[network.network_key].targetExchangeId}
-                    </div>
-                  ) : null}
                 </div>
                 <div className="flex items-center gap-2 text-xs">
-                  <StatusPill label="Dep" value={network.deposit_enabled} />
-                  <StatusPill label="Saq" value={network.withdraw_enabled} />
+                  <StatusPill label={copy.deposit} value={network.deposit_enabled} />
+                  <StatusPill label={copy.withdraw} value={network.withdraw_enabled} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm xl:grid-cols-4">
-                <NetworkDataPoint label="Taxa deposito" value={formatMaybeAssetAmount(network.deposit_fee, network.asset)} />
-                <NetworkDataPoint label="Taxa saque" value={formatMaybeAssetAmount(network.withdraw_fee, network.asset)} />
-                <NetworkDataPoint label="Min deposito" value={formatMaybeAssetAmount(network.deposit_min, network.asset)} />
-                <NetworkDataPoint label="Min saque" value={formatMaybeAssetAmount(network.withdraw_min, network.asset)} />
+                <NetworkDataPoint label={copy.depositFee} value={formatMaybeAssetAmount(network.deposit_fee, network.asset)} />
+                <NetworkDataPoint label={copy.withdrawFee} value={formatMaybeAssetAmount(network.withdraw_fee, network.asset)} />
+                <NetworkDataPoint label={copy.depositMin} value={formatMaybeAssetAmount(network.deposit_min, network.asset)} />
+                <NetworkDataPoint label={copy.withdrawMin} value={formatMaybeAssetAmount(network.withdraw_min, network.asset)} />
               </div>
               {network.contract_address ? (
                 <div className="mt-3 rounded-lg bg-secondary/35 px-3 py-2 text-xs text-muted-foreground">
@@ -1553,6 +1679,25 @@ function formatMaybeAssetAmount(value: number | null | undefined, asset: string 
   const formattedValue = value.toLocaleString("pt-BR", { maximumFractionDigits: 8 })
   const normalizedAsset = String(asset ?? "").trim().toUpperCase()
   return normalizedAsset ? `${formattedValue} ${normalizedAsset}` : formattedValue
+}
+
+function parsePairKey(pairKey: string) {
+  const parts = pairKey.split("|").map((part) => part.trim()).filter(Boolean)
+  if (parts.length >= 4 && (parts[0] === "spot_future" || parts[0] === "spot_spot")) {
+    return {
+      pairType: parts[0],
+      symbol: parts[1],
+      spotExchange: parts[2],
+      futuresExchange: parts[3],
+    }
+  }
+
+  return {
+    pairType: "",
+    symbol: "",
+    spotExchange: "",
+    futuresExchange: "",
+  }
 }
 
 function formatDateTime(value: string | null | undefined) {

@@ -3,13 +3,14 @@ import { NextRequest, NextResponse } from "next/server"
 const DEFAULT_HTTP_BASE_URL = "http://127.0.0.1:8000"
 const BACKEND_TIMEOUT_MS = 8_000
 
+export const dynamic = "force-dynamic"
+
 function getBackendBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_URL?.trim() || DEFAULT_HTTP_BASE_URL).replace(/\/+$/, "")
 }
 
 export async function GET(request: NextRequest) {
-  const search = request.nextUrl.search
-  const targetUrl = `${getBackendBaseUrl()}/candles${search}`
+  const targetUrl = `${getBackendBaseUrl()}/me`
 
   try {
     const response = await fetchBackend(targetUrl, request.headers.get("authorization"))
@@ -19,12 +20,22 @@ export async function GET(request: NextRequest) {
       status: response.status,
       headers: {
         "content-type": response.headers.get("content-type") || "application/json",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        pragma: "no-cache",
+        expires: "0",
       },
     })
   } catch {
     return NextResponse.json(
-      { detail: "Falha ao conectar com o backend em /candles." },
-      { status: 502 },
+      { detail: "Falha ao conectar com o backend em /me." },
+      {
+        status: 502,
+        headers: {
+          "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          pragma: "no-cache",
+          expires: "0",
+        },
+      },
     )
   }
 }

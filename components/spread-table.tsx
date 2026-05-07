@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { usePreferences } from "@/components/preferences-provider"
 import type { SpreadItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -31,9 +32,9 @@ type SortKey =
 
 type SortDirection = "asc" | "desc"
 
-function formatNumber(value: number | undefined, decimals = 2): string {
+function formatNumber(value: number | undefined, decimals = 2, locale = "pt-BR"): string {
   if (value === undefined || value === null) return "-"
-  return value.toLocaleString("pt-BR", {
+  return value.toLocaleString(locale, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   })
@@ -46,11 +47,21 @@ function formatCurrency(value: number | undefined): string {
   return `$${value.toFixed(0)}`
 }
 
-function formatPrice(value: number | undefined): string {
+function formatPrice(value: number | undefined, locale = "pt-BR"): string {
   if (value === undefined || value === null) return "-"
-  if (value >= 1_000) return `$${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  if (value >= 1) return `$${value.toLocaleString("pt-BR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
-  return `$${value.toLocaleString("pt-BR", { minimumFractionDigits: 6, maximumFractionDigits: 6 })}`
+  if (value >= 1_000) return `$${value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  if (value >= 1) return `$${value.toLocaleString(locale, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
+  return `$${value.toLocaleString(locale, { minimumFractionDigits: 6, maximumFractionDigits: 6 })}`
+}
+
+function buildPairMonitorHref(item: SpreadItem, pairType: "spot_future" | "spot_spot"): string {
+  const params = new URLSearchParams()
+  params.set("pair_key", item.pair_key)
+  params.set("pair_type", item.pair_type ?? pairType)
+  params.set("symbol", item.symbol)
+  params.set("spot_exchange", item.spot_exchange)
+  params.set("futures_exchange", item.futures_exchange)
+  return `/pair?${params.toString()}`
 }
 
 function getVolumeSortValue(item: SpreadItem): number {
@@ -74,6 +85,7 @@ function getSpreadBgColor(spread: number): string {
 }
 
 export function SpreadTable({ data, pairType = "spot_future" }: SpreadTableProps) {
+  const { t, locale } = usePreferences()
   const [sortKey, setSortKey] = useState<SortKey>("symbol")
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc")
 
@@ -103,14 +115,14 @@ export function SpreadTable({ data, pairType = "spot_future" }: SpreadTableProps
       const rightValue = getValue(right)
 
       if (typeof leftValue === "string" && typeof rightValue === "string") {
-        return leftValue.localeCompare(rightValue, "pt-BR") * direction
+        return leftValue.localeCompare(rightValue, locale) * direction
       }
 
       return ((Number(leftValue) || 0) - (Number(rightValue) || 0)) * direction
     })
 
     return items
-  }, [data, sortDirection, sortKey])
+  }, [data, locale, sortDirection, sortKey])
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -157,9 +169,9 @@ export function SpreadTable({ data, pairType = "spot_future" }: SpreadTableProps
     return (
       <div className="rounded-lg border border-border bg-card p-12 text-center">
         <BarChart3 className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-        <h3 className="mb-2 text-lg font-medium text-foreground">Nenhuma oportunidade encontrada</h3>
+        <h3 className="mb-2 text-lg font-medium text-foreground">{t("noOpportunities")}</h3>
         <p className="text-sm text-muted-foreground">
-          Aguardando dados ou ajuste os filtros para ver mais resultados
+          {t("noOpportunitiesDescription")}
         </p>
       </div>
     )
@@ -171,24 +183,24 @@ export function SpreadTable({ data, pairType = "spot_future" }: SpreadTableProps
         <Table className="min-w-[1490px] table-fixed">
           <TableHeader>
             <TableRow className="border-border hover:bg-transparent">
-              {renderSortableHeader("Par", "symbol", "left", "w-[200px]")}
-              {renderSortableHeader(pairType === "spot_spot" ? "Spot Compra" : "Spot", "spot_exchange", "left", "w-[120px]")}
-              {renderSortableHeader(pairType === "spot_spot" ? "Spot Venda" : "Futuros", "futures_exchange", "left", "w-[120px]")}
-              {pairType === "spot_future" ? renderSortableHeader("Funding", "funding_rate", "right", "w-[105px]") : null}
-              {renderSortableHeader(pairType === "spot_spot" ? "Lucro" : "Spread Entrada", "entry_spread_pct", "right", "w-[135px]")}
+              {renderSortableHeader(t("pair"), "symbol", "left", "w-[200px]")}
+              {renderSortableHeader(pairType === "spot_spot" ? t("spotBuy") : t("spot"), "spot_exchange", "left", "w-[120px]")}
+              {renderSortableHeader(pairType === "spot_spot" ? t("spotSell") : t("futures"), "futures_exchange", "left", "w-[120px]")}
+              {pairType === "spot_future" ? renderSortableHeader(t("funding"), "funding_rate", "right", "w-[105px]") : null}
+              {renderSortableHeader(pairType === "spot_spot" ? t("profit") : t("entrySpread"), "entry_spread_pct", "right", "w-[135px]")}
               {pairType === "spot_future" ? (
                 <TableHead className="w-[135px] text-right font-medium text-muted-foreground">
-                  Spread Saida
+                  {t("exitSpread")}
                 </TableHead>
               ) : null}
               <TableHead className="w-[150px] text-right font-medium text-muted-foreground">
-                {pairType === "spot_spot" ? "Book Compra" : "Book Spot"}
+                {pairType === "spot_spot" ? t("buyBook") : t("spotBook")}
               </TableHead>
               <TableHead className="w-[150px] text-right font-medium text-muted-foreground">
-                {pairType === "spot_spot" ? "Book Venda" : "Book Future"}
+                {pairType === "spot_spot" ? t("sellBook") : t("futureBook")}
               </TableHead>
-              {renderSortableHeader("Volume 24h", "volume_24h_usdt", "right", "w-[155px]")}
-              <TableHead className="w-[145px] text-center font-medium text-muted-foreground">Acao</TableHead>
+              {renderSortableHeader(t("volume24h"), "volume_24h_usdt", "right", "w-[155px]")}
+              <TableHead className="w-[145px] text-center font-medium text-muted-foreground">{t("action")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -209,6 +221,8 @@ const SpreadTableRow = memo(function SpreadTableRow({
   item: SpreadItem
   pairType: "spot_future" | "spot_spot"
 }) {
+  const { t, locale } = usePreferences()
+
   return (
     <TableRow className="border-border transition-colors hover:bg-secondary/50">
       <TableCell className="w-[200px]">
@@ -243,7 +257,7 @@ const SpreadTableRow = memo(function SpreadTableRow({
               )}
             >
               {item.funding_rate >= 0 ? "+" : ""}
-              {formatNumber(item.funding_rate * 100, 4)}%
+              {formatNumber(item.funding_rate * 100, 4, locale)}%
             </span>
           ) : (
             <span className="text-muted-foreground">-</span>
@@ -258,7 +272,7 @@ const SpreadTableRow = memo(function SpreadTableRow({
             <TrendingDown className="h-4 w-4" />
           )}
           <span className={cn("rounded px-2 py-0.5 font-semibold", getSpreadBgColor(item.entry_spread_pct))}>
-            {formatNumber(item.entry_spread_pct)}%
+            {formatNumber(item.entry_spread_pct, 2, locale)}%
           </span>
         </div>
       </TableCell>
@@ -271,7 +285,7 @@ const SpreadTableRow = memo(function SpreadTableRow({
               <TrendingDown className="h-4 w-4" />
             )}
             <span className={cn("rounded px-2 py-0.5 font-semibold", getSpreadBgColor(item.exit_spread_pct))}>
-              {formatNumber(item.exit_spread_pct)}%
+              {formatNumber(item.exit_spread_pct, 2, locale)}%
             </span>
           </div>
         </TableCell>
@@ -283,13 +297,13 @@ const SpreadTableRow = memo(function SpreadTableRow({
               {pairType === "spot_spot" ? "Ask" : "Ask"}
             </span>
             <span className="font-medium text-rose-600">
-              {formatPrice(item.best_spot_ask)}
+              {formatPrice(item.best_spot_ask, locale)}
             </span>
           </div>
           <div className="flex items-center justify-end gap-2 text-xs">
             <span className="text-muted-foreground">Bid</span>
             <span className="font-medium text-emerald-600">
-              {formatPrice(item.best_spot_bid)}
+              {formatPrice(item.best_spot_bid, locale)}
             </span>
           </div>
         </div>
@@ -301,7 +315,7 @@ const SpreadTableRow = memo(function SpreadTableRow({
               {pairType === "spot_spot" ? "Bid" : "Ask"}
             </span>
             <span className="font-medium text-rose-600">
-              {formatPrice(pairType === "spot_spot" ? item.best_future_bid : item.best_future_ask)}
+              {formatPrice(pairType === "spot_spot" ? item.best_future_bid : item.best_future_ask, locale)}
             </span>
           </div>
           <div className="flex items-center justify-end gap-2 text-xs">
@@ -309,7 +323,7 @@ const SpreadTableRow = memo(function SpreadTableRow({
               {pairType === "spot_spot" ? "Ask" : "Bid"}
             </span>
             <span className="font-medium text-emerald-600">
-              {formatPrice(pairType === "spot_spot" ? item.best_future_ask : item.best_future_bid)}
+              {formatPrice(pairType === "spot_spot" ? item.best_future_ask : item.best_future_bid, locale)}
             </span>
           </div>
         </div>
@@ -317,13 +331,13 @@ const SpreadTableRow = memo(function SpreadTableRow({
       <TableCell className="w-[155px] pr-2 text-right">
         <div className="space-y-1">
           <div className="flex items-center justify-end gap-2 text-xs">
-            <span className="text-muted-foreground">{pairType === "spot_spot" ? "Compra" : "Spot"}</span>
+            <span className="text-muted-foreground">{pairType === "spot_spot" ? t("buy") : t("spot")}</span>
             <span className="font-medium text-foreground">
               {formatCurrency(item.spot_volume_24h_usdt)}
             </span>
           </div>
           <div className="flex items-center justify-end gap-2 text-xs">
-            <span className="text-muted-foreground">{pairType === "spot_spot" ? "Venda" : "Future"}</span>
+            <span className="text-muted-foreground">{pairType === "spot_spot" ? t("sell") : "Future"}</span>
             <span className="font-medium text-foreground">
               {formatCurrency(item.future_volume_24h_usdt)}
             </span>
@@ -337,9 +351,9 @@ const SpreadTableRow = memo(function SpreadTableRow({
           size="sm"
           className="whitespace-nowrap px-3 text-primary hover:bg-primary/10 hover:text-primary"
         >
-          <Link href={`/pair?pair_key=${encodeURIComponent(item.pair_key)}`}>
+          <Link href={buildPairMonitorHref(item, pairType)}>
             <BarChart3 className="mr-1 h-4 w-4" />
-            Analisar
+            {t("analyze")}
           </Link>
         </Button>
       </TableCell>

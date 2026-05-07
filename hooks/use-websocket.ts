@@ -121,9 +121,18 @@ export function useWebSocket({
         setState((prev) => ({ ...prev, error: "Erro na conexao WebSocket" }))
       }
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         console.log("[v0] WebSocket disconnected")
         setState((prev) => ({ ...prev, isConnected: false }))
+
+        if (event.code === 1008) {
+          shouldReconnectRef.current = false
+          setState((prev) => ({
+            ...prev,
+            error: event.reason || "Sessao WebSocket recusada",
+          }))
+          return
+        }
 
         if (!shouldReconnectRef.current || manuallyClosedRef.current) {
           return

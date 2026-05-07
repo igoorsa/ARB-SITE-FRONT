@@ -1,7 +1,8 @@
 "use client"
 
 import { useMemo } from "react"
-import { TrendingUp, DollarSign, BarChart3, Zap } from "lucide-react"
+import { BarChart3, DollarSign, TrendingUp, Zap } from "lucide-react"
+import { usePreferences } from "@/components/preferences-provider"
 import { Card, CardContent } from "@/components/ui/card"
 import type { SpreadItem } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -11,6 +12,7 @@ interface StatsCardsProps {
 }
 
 export function StatsCards({ data }: StatsCardsProps) {
+  const { t } = usePreferences()
   const stats = useMemo(() => {
     if (data.length === 0) {
       return {
@@ -33,33 +35,17 @@ export function StatsCards({ data }: StatsCardsProps) {
   }, [data])
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      <StatCard
-        icon={BarChart3}
-        label="Oportunidades"
-        value={stats.totalOpportunities.toString()}
-        subtitle="ativos monitorados"
-      />
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <StatCard icon={BarChart3} label={t("opportunities")} value={stats.totalOpportunities.toString()} subtitle={t("monitoredAssets")} />
       <StatCard
         icon={TrendingUp}
-        label="Spread Médio"
+        label={t("avgSpread")}
         value={`${stats.avgSpread.toFixed(2)}%`}
-        subtitle="spread de entrada"
+        subtitle={t("entrySpreadSubtitle")}
         valueColor={stats.avgSpread >= 0.5 ? "text-primary" : "text-foreground"}
       />
-      <StatCard
-        icon={Zap}
-        label="Maior Spread"
-        value={`${stats.maxSpread.toFixed(2)}%`}
-        subtitle="melhor oportunidade"
-        valueColor="text-primary"
-      />
-      <StatCard
-        icon={DollarSign}
-        label="Volume Total"
-        value={formatCurrency(stats.totalVolume)}
-        subtitle="liquidez disponível"
-      />
+      <StatCard icon={Zap} label={t("maxSpread")} value={`${stats.maxSpread.toFixed(2)}%`} subtitle={t("bestOpportunity")} valueColor="text-primary" />
+      <StatCard icon={DollarSign} label={t("totalVolume")} value={formatCurrency(stats.totalVolume)} subtitle={t("availableLiquidity")} />
     </div>
   )
 }
@@ -72,23 +58,17 @@ interface StatCardProps {
   valueColor?: string
 }
 
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  subtitle,
-  valueColor = "text-foreground",
-}: StatCardProps) {
+function StatCard({ icon: Icon, label, value, subtitle, valueColor = "text-foreground" }: StatCardProps) {
   return (
-    <Card className="bg-card border-border">
+    <Card className="border-border bg-card">
       <CardContent className="p-4">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-sm text-muted-foreground">{label}</p>
-            <p className={cn("text-2xl font-bold mt-1", valueColor)}>{value}</p>
-            <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+            <p className={cn("mt-1 text-2xl font-bold", valueColor)}>{value}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
           </div>
-          <div className="p-2 bg-primary/10 rounded-lg">
+          <div className="rounded-lg bg-primary/10 p-2">
             <Icon className="h-5 w-5 text-primary" />
           </div>
         </div>

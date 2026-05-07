@@ -228,7 +228,9 @@ function createSocketForLeg(leg: ExchangeLegStreamSpec): WebSocket {
     return new WebSocket(`wss://fx-ws.gateio.ws/v4/ws/${toGateSettle(leg.asset)}`)
   }
   if (exchangeId === "mexc" && leg.marketType === "spot") {
-    return new WebSocket("wss://wbs-api.mexc.com/ws")
+    const socket = new WebSocket("wss://wbs-api.mexc.com/ws")
+    socket.binaryType = "arraybuffer"
+    return socket
   }
   if (exchangeId === "mexc" && leg.marketType === "future") {
     return new WebSocket("wss://contract.mexc.com/edge")
@@ -356,7 +358,6 @@ function sendSubscribe(ws: WebSocket, leg: ExchangeLegStreamSpec) {
     ws.send(
       JSON.stringify({
         id: String(Date.now()),
-        reqType: "sub",
         dataType: `${toBingxSymbol(leg.asset)}@depth`,
       })
     )
@@ -965,7 +966,7 @@ async function decodeSocketPayload(rawPayload: string | ArrayBuffer | Blob): Pro
     if (deflateDecoded) return deflateDecoded
     const fflateDecoded = decodeCompressedBinaryWithFflate(u8)
     if (fflateDecoded) return fflateDecoded
-    const directDecoded = decodeMaybeJsonBinary(u8)
+    const directDecoded = decodeMaybeJsonBinary(u8, { allowPlainText: false })
     return directDecoded ?? u8
   }
 
@@ -984,11 +985,16 @@ async function decodeSocketPayload(rawPayload: string | ArrayBuffer | Blob): Pro
   return directText ?? gzipText ?? deflateText
 }
 
-function decodeMaybeJsonBinary(payload: Uint8Array | null): any | string | null {
+function decodeMaybeJsonBinary(
+  payload: Uint8Array | null,
+  options: { allowPlainText?: boolean } = {}
+): any | string | null {
   if (!payload || payload.length === 0) return null
   const text = decodeUtf8(payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength))
   if (!text) return null
-  return safeJsonParse(text) ?? text
+  const json = safeJsonParse(text)
+  if (json) return json
+  return options.allowPlainText === false ? null : text
 }
 
 function decodeCompressedBinaryWithFflate(payload: Uint8Array): any | string | null {

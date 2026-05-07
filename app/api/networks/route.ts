@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 const DEFAULT_HTTP_BASE_URL = "http://127.0.0.1:8000"
+const BACKEND_TIMEOUT_MS = 8_000
 
 function getBackendBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_URL?.trim() || DEFAULT_HTTP_BASE_URL).replace(/\/+$/, "")
@@ -11,7 +12,7 @@ export async function GET(request: NextRequest) {
   const targetUrl = `${getBackendBaseUrl()}/networks${search}`
 
   try {
-    const response = await fetch(targetUrl, { cache: "no-store" })
+    const response = await fetchBackend(targetUrl, request.headers.get("authorization"))
     const body = await response.text()
 
     return new NextResponse(body, {
@@ -25,5 +26,19 @@ export async function GET(request: NextRequest) {
       { detail: "Falha ao conectar com o backend em /networks." },
       { status: 502 },
     )
+  }
+}
+
+async function fetchBackend(url: string, authorization: string | null): Promise<Response> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), BACKEND_TIMEOUT_MS)
+  try {
+    return await fetch(url, {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: authorization ? { authorization } : undefined,
+    })
+  } finally {
+    clearTimeout(timeout)
   }
 }

@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { usePreferences } from "@/components/preferences-provider"
 import type { CandleData } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -28,9 +29,9 @@ const MARGIN = { top: 24, right: 28, bottom: 54, left: 86 }
 const INNER_WIDTH = SVG_WIDTH - MARGIN.left - MARGIN.right
 const INNER_HEIGHT = SVG_HEIGHT - MARGIN.top - MARGIN.bottom
 
-function formatTime(dateString: string): string {
+function formatTime(dateString: string, locale = "pt-BR"): string {
   const date = new Date(dateString)
-  return date.toLocaleTimeString("pt-BR", {
+  return date.toLocaleTimeString(locale, {
     hour: "2-digit",
     minute: "2-digit",
   })
@@ -40,7 +41,7 @@ function formatPercent(value: number) {
   return `${value.toFixed(3)}%`
 }
 
-function normalizeCandles(data: CandleData[], type: "entry" | "exit") {
+function normalizeCandles(data: CandleData[], type: "entry" | "exit", locale = "pt-BR") {
   return [...data].reverse().map((candle) => {
     const open = type === "entry" ? candle.entry_open : candle.exit_open
     const high = type === "entry" ? candle.entry_high : candle.exit_high
@@ -48,7 +49,7 @@ function normalizeCandles(data: CandleData[], type: "entry" | "exit") {
     const close = type === "entry" ? candle.entry_close : candle.exit_close
 
     return {
-      time: formatTime(candle.minute_start),
+      time: formatTime(candle.minute_start, locale),
       fullTime: candle.minute_start,
       open,
       high,
@@ -66,9 +67,10 @@ export function CandlestickChartCustom({
   title,
   isUpdating = false,
 }: CandlestickChartProps) {
+  const { t, locale } = usePreferences()
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
 
-  const chartData = useMemo(() => normalizeCandles(data, type), [data, type])
+  const chartData = useMemo(() => normalizeCandles(data, type, locale), [data, locale, type])
 
   const scale = useMemo(() => {
     if (chartData.length === 0) {
@@ -104,7 +106,7 @@ export function CandlestickChartCustom({
   if (chartData.length === 0) {
     return (
       <div className="bg-secondary/50 rounded-xl p-8 text-center min-h-[560px] flex items-center justify-center">
-        <p className="text-muted-foreground">Sem dados disponiveis</p>
+        <p className="text-muted-foreground">{t("noData")}</p>
       </div>
     )
   }
@@ -116,7 +118,7 @@ export function CandlestickChartCustom({
   if (!activeCandle) {
     return (
       <div className="bg-secondary/50 rounded-xl p-8 text-center min-h-[560px] flex items-center justify-center">
-        <p className="text-muted-foreground">Aguardando dados do grafico</p>
+        <p className="text-muted-foreground">{t("waitingChartData")}</p>
       </div>
     )
   }
@@ -140,7 +142,7 @@ export function CandlestickChartCustom({
           {isUpdating ? (
             <span className="inline-flex items-center gap-2 rounded-full bg-secondary/70 px-2.5 py-1 text-[11px] text-muted-foreground">
               <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
-              Atualizando
+              {t("updating")}
             </span>
           ) : null}
           <span className="text-xs text-muted-foreground">{chartData.length} candles</span>
@@ -148,14 +150,14 @@ export function CandlestickChartCustom({
       </div>
 
       <div className={cn("mb-4 grid grid-cols-2 gap-3 rounded-xl border border-border/70 bg-secondary/25 p-4 text-sm xl:grid-cols-7 transition-opacity", isUpdating && "opacity-70")}>
-        <MetricChip label="Horario" value={activeCandle.time} />
+        <MetricChip label={t("time")} value={activeCandle.time} />
         <MetricChip label="Open" value={formatPercent(activeCandle.open)} />
         <MetricChip label="Max" value={formatPercent(activeCandle.high)} />
         <MetricChip label="Min" value={formatPercent(activeCandle.low)} />
         <MetricChip label="Close" value={formatPercent(activeCandle.close)} />
         <MetricChip label="Range" value={formatPercent(activeCandle.high - activeCandle.low)} />
         <MetricChip
-          label="Variacao"
+          label={t("variation")}
           value={formatPercent(activeCandle.variation)}
           tone={activeCandle.variation >= 0 ? "positive" : "negative"}
         />
@@ -164,7 +166,7 @@ export function CandlestickChartCustom({
       <div className={cn("relative h-[560px] w-full overflow-hidden rounded-xl border border-border/70 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.07),transparent_58%),linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.00))] transition-opacity", isUpdating && "opacity-75")}>
         {isUpdating ? (
           <div className="pointer-events-none absolute right-4 top-4 z-10 rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-xs text-muted-foreground backdrop-blur">
-            Atualizando candles...
+            {t("updatingCandles")}
           </div>
         ) : null}
         <svg viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`} className="h-full w-full" preserveAspectRatio="none">

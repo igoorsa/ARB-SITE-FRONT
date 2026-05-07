@@ -1,4 +1,5 @@
 import type {
+  AccountProfile,
   AssetNetworksResponse,
   CandleData,
   HealthStatus,
@@ -47,10 +48,16 @@ function resolveWebSocketBaseUrl(): string {
 
 const API_BASE_URL = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_URL, DEFAULT_HTTP_BASE_URL)
 const WS_BASE_URL = resolveWebSocketBaseUrl()
+const API_TIMEOUT_MS = 8_000
+let apiAccessToken: string | null = null
 
 export const apiConfig = {
   baseUrl: API_BASE_URL,
   wsUrl: WS_BASE_URL,
+}
+
+export function setApiAccessToken(token: string | null) {
+  apiAccessToken = token
 }
 
 interface LatestParams {
@@ -67,6 +74,7 @@ interface LatestParams {
   delta?: boolean
   lite?: boolean
   msgpack?: boolean
+  token?: string
 }
 
 interface CandleParams {
@@ -107,17 +115,38 @@ function buildQueryString(params: Record<string, string | number | string[] | un
 }
 
 export async function fetchHealth(): Promise<HealthStatus> {
-  const response = await fetch(`${API_BASE_URL}/health`)
+  const response = await fetchWithTimeout(`${API_BASE_URL}/health`)
   if (!response.ok) {
     throw new Error("Falha ao verificar status da API")
   }
   return response.json()
 }
 
+export async function fetchAccountProfile(): Promise<AccountProfile> {
+  const cacheBuster = Date.now()
+  try {
+    const response = await fetchWithTimeout(resolveInternalApiUrl(`/api/me?t=${cacheBuster}`), {
+      cache: "no-store",
+      headers: {
+        "cache-control": "no-cache",
+      },
+    })
+    return await readAccountProfileResponse(response)
+  } catch {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/me?t=${cacheBuster}`, {
+      cache: "no-store",
+      headers: {
+        "cache-control": "no-cache",
+      },
+    })
+    return readAccountProfileResponse(response)
+  }
+}
+
 export async function fetchLatest(params: LatestParams = {}): Promise<SpreadItem[]> {
   const queryString = buildQueryString(params)
   const url = `${API_BASE_URL}/latest${queryString ? `?${queryString}` : ""}`
-  const response = await fetch(url)
+  const response = await fetchWithTimeout(url)
   if (!response.ok) {
     throw new Error("Falha ao buscar dados mais recentes")
   }
@@ -139,7 +168,7 @@ export async function fetchLatest(params: LatestParams = {}): Promise<SpreadItem
 export async function fetchCandles(params: CandleParams): Promise<CandleData[]> {
   const queryString = buildQueryString(params)
   const url = `${API_BASE_URL}/candles${queryString ? `?${queryString}` : ""}`
-  const response = await fetch(url)
+  const response = await fetchWithTimeout(url)
   if (!response.ok) {
     throw new Error("Falha ao buscar dados de candles")
   }
@@ -150,7 +179,7 @@ export async function fetchCandles(params: CandleParams): Promise<CandleData[]> 
 export async function fetchNetworks(params: NetworkParams): Promise<AssetNetworksResponse> {
   const queryString = buildQueryString(params)
   const url = `${API_BASE_URL}/networks${queryString ? `?${queryString}` : ""}`
-  const response = await fetch(url)
+  const response = await fetchWithTimeout(url)
   if (!response.ok) {
     throw new Error("Falha ao buscar dados de redes")
   }
@@ -158,7 +187,10 @@ export async function fetchNetworks(params: NetworkParams): Promise<AssetNetwork
 }
 
 export function createWebSocketUrl(params: LatestParams & { interval_seconds?: number }): string {
-  const queryString = buildQueryString(params)
+  const queryString = buildQueryString({
+    ...params,
+    token: params.token ?? apiAccessToken ?? undefined,
+  })
   return `${WS_BASE_URL}/ws/spreads${queryString ? `?${queryString}` : ""}`
 }
 
@@ -203,4 +235,36 @@ function toOptionalNumber(value: unknown): number | undefined {
   }
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : undefined
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = API_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, {
+      ...init,
+      headers: {
+        ...(apiAccessToken ? { Authorization: `Bearer ${apiAccessToken}` } : {}),
+        ...(init.headers ?? {}),
+      },
+      signal: init.signal ?? controller.signal,
+    })
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function readAccountProfileResponse(response: Response): Promise<AccountProfile> {
+  const body = await response.text()
+  if (!response.ok || !body.trim()) {
+    throw new Error("Falha ao buscar dados da conta")
+  }
+  return JSON.parse(body) as AccountProfile
+}
+
+function resolveInternalApiUrl(path: string): string {
+  if (typeof window === "undefined") {
+    return path
+  }
+  return `${window.location.origin}${path}`
 }
